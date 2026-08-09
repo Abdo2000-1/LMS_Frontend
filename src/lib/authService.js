@@ -1,12 +1,4 @@
-import {
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-} from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
-import { auth, db, tenantId } from "../services/firebase.js";
+import { api, clearSession, getSession, setSession } from "../services/apiClient.js";
 
 const GOVERNORATES = [
   "القاهرة",
@@ -45,171 +37,110 @@ export function normalizePhone(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
-function buildLoginEmailFromPhone(phone) {
-  const normalized = normalizePhone(phone);
-  return `${normalized}@students.alostaz.app`;
-}
-
-function mapFirebaseError(error) {
-  const code = error?.code || "";
-  if (code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password") {
-    return "رقم الهاتف أو كلمة المرور غير صحيح.";
-  }
-  if (code === "auth/email-already-in-use") {
-    return "هذا الرقم مسجل بالفعل. جرّب تسجيل الدخول.";
-  }
-  if (code === "auth/weak-password") {
-    return "كلمة المرور ضعيفة جدًا.";
-  }
-  if (code === "auth/too-many-requests") {
-    return "عدد محاولات كبير جدًا، حاول لاحقًا.";
-  }
-  return "حدث خطأ في المصادقة، حاول مرة أخرى.";
-}
-
-async function getUserProfile(uid) {
-  const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? { uid, ...snap.data() } : null;
-}
-
-function normalizeRole(role) {
-  return ["student", "teacher", "developer"].includes(role) ? role : "student";
-}
-
-function toPublicUser(profile, firebaseUser) {
+function mapApiUser(payload) {
   return {
-    uid: firebaseUser.uid,
-    name: profile?.name || firebaseUser.displayName || "مستخدم",
-    email: profile?.email || firebaseUser.email || "",
-    phone: profile?.phone || "",
-    role: normalizeRole(profile?.role),
-    grade: profile?.grade || "",
-    governorate: profile?.governorate || "",
-    tenantId: profile?.tenantId || tenantId,
-    enrolledCourses: profile?.enrolledCourses || [],
-    progress: profile?.progress || {},
-    quizResults: profile?.quizResults || {},
-    isBlocked: Boolean(profile?.isBlocked),
+    uid: payload.uid || payload.userId || "",
+    name: payload.name || payload.fullName || "مستخدم",
+    email: payload.email || "",
+    phone: payload.phone || "",
+    role: payload.role || "student",
+    grade: payload.grade || "",
+    governorate: payload.governorate || "",
+    enrolledCourses: payload.enrolledCourses || [],
+    progress: payload.progress || {},
+    quizResults: payload.quizResults || {},
+    isBlocked: Boolean(payload.isBlocked),
   };
+}
+
+function writeSessionFromAuthResponse(payload) {
+  const user = mapApiUser(payload);
+  const session = {
+    accessToken: payload.accessToken,
+    refreshToken: payload.refreshToken,
+    user,
+  };
+  setSession(session);
+  return session;
+}
+
+export async function refreshProfileRequest() {
+  const session = getSession();
+  if (!session?.accessToken) return { user: null, token: null };
+
+  const payload = await api.get("/auth/me");
+  const nextSession = {
+    ...session,
+    user: mapApiUser(payload),
+  };
+  setSession(nextSession);
+  return { user: nextSession.user, token: nextSession.accessToken };
 }
 
 export async function registerRequest({ name, email, phone, grade, governorate, password }) {
   const normalizedPhone = normalizePhone(phone);
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-
-  const authEmail = buildLoginEmailFromPhone(normalizedPhone);
-
-  try {
-    const phoneSnap = await getDocs(
-      query(collection(db, "users"), where("tenantId", "==", tenantId), where("phone", "==", normalizedPhone))
-    );
-    if (!phoneSnap.empty) {
-      throw new Error("رقم الموبايل مسجل بالفعل. جرّب تسجيل الدخول.");
-    }
-
-    const emailSnap = await getDocs(
-      query(collection(db, "users"), where("tenantId", "==", tenantId), where("email", "==", normalizedEmail))
-    );
-    if (!emailSnap.empty) {
-      throw new Error("البريد الإلكتروني مسجل بالفعل. استخدم بريدًا آخر.");
-    }
-
-    const credential = await createUserWithEmailAndPassword(auth, authEmail, password);
-    await updateProfile(credential.user, { displayName: name.trim() });
-
-    const profile = {
-      uid: credential.user.uid,
-      tenantId,
-      role: "student",
-      name: name.trim(),
-      email: normalizedEmail,
-      phone: normalizedPhone,
-      grade: String(grade || "").trim(),
-      governorate: String(governorate || "").trim(),
-      enrolledCourses: [],
-      progress: {},
-      isBlocked: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-
-    await setDoc(doc(db, "users", credential.user.uid), profile);
-    const token = await credential.user.getIdToken();
-    return { user: toPublicUser(profile, credential.user), token };
-  } catch (error) {
-    if (error instanceof Error && !error?.code?.startsWith?.("auth/")) {
-      throw error;
-    }
-    throw new Error(mapFirebaseError(error));
-  }
+  const payload = await api.post("/auth/register", {
+    fullName: String(name || "").trim(),
+    email: String(email || "").trim().toLowerCase(),
+    phone: normalizedPhone,
+    grade: String(grade || "").trim(),
+    governorate: String(governorate || "").trim(),
+    password,
+  });
+  const session = writeSessionFromAuthResponse(payload);
+  return { user: session.user, token: session.accessToken };
 }
 
 export async function loginRequest({ phone, password }) {
   const normalizedPhone = normalizePhone(phone);
-  const authEmail = buildLoginEmailFromPhone(normalizedPhone);
-
-  try {
-    const credential = await signInWithEmailAndPassword(auth, authEmail, password);
-    const profile = await getUserProfile(credential.user.uid);
-    const user = toPublicUser(
-      profile || {
-        role: "student",
-        phone: normalizedPhone,
-      },
-      credential.user
-    );
-
-    if (user.isBlocked) {
-      await signOut(auth);
-      throw new Error("تم إيقاف هذا الحساب. تواصل مع إدارة المنصة.");
-    }
-
-    const token = await credential.user.getIdToken();
-    return { user, token };
-  } catch (error) {
-    if (error instanceof Error && !error.message.includes("auth/")) {
-      throw error;
-    }
-    throw new Error(mapFirebaseError(error));
-  }
+  const payload = await api.post("/auth/login", {
+    phone: normalizedPhone,
+    password,
+  });
+  const session = writeSessionFromAuthResponse(payload);
+  return { user: session.user, token: session.accessToken };
 }
 
 export async function updateProfileRequest({ name }) {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error("لا توجد جلسة تسجيل دخول.");
-
-  const profileRef = doc(db, "users", currentUser.uid);
-  await updateDoc(profileRef, {
-    name: String(name || "").trim(),
-    updatedAt: serverTimestamp(),
-  });
-  await updateProfile(currentUser, { displayName: String(name || "").trim() });
-
-  const profile = await getUserProfile(currentUser.uid);
-  return { user: toPublicUser(profile, currentUser) };
+  const payload = await api.patch("/auth/me", { name: String(name || "").trim() });
+  const session = getSession();
+  if (session) {
+    const next = { ...session, user: mapApiUser(payload) };
+    setSession(next);
+    return { user: next.user };
+  }
+  return { user: mapApiUser(payload) };
 }
 
-export function logoutRequest() {
-  return signOut(auth);
+export async function logoutRequest() {
+  const session = getSession();
+  if (session?.refreshToken) {
+    try {
+      await api.post("/auth/revoke", { refreshToken: session.refreshToken });
+    } catch {
+      // no-op: local session must still be cleared
+    }
+  }
+  clearSession();
 }
 
 export function watchAuthState(callback) {
-  return onAuthStateChanged(auth, async (firebaseUser) => {
-    if (!firebaseUser) {
-      callback(null, null);
-      return;
-    }
+  const session = getSession();
+  if (!session?.accessToken) {
+    callback(null, null);
+    return () => {};
+  }
 
-    const profile = await getUserProfile(firebaseUser.uid);
-    const user = toPublicUser(profile, firebaseUser);
-    if (user.isBlocked) {
-      await signOut(auth);
+  refreshProfileRequest()
+    .then(({ user, token }) => {
+      callback(user, token);
+    })
+    .catch(() => {
+      clearSession();
       callback(null, null);
-      return;
-    }
-    const token = await firebaseUser.getIdToken();
-    callback(user, token);
-  });
+    });
+
+  return () => {};
 }
 
 export function getLandingRouteByRole(role) {

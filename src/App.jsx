@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
+import { BrandingProvider } from "./context/BrandingContext.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import Home from "./Home.jsx";
 import Login from "./pages/Login.jsx";
@@ -16,9 +17,10 @@ import Profile from "./pages/Profile.jsx";
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter basename={import.meta.env.BASE_URL}>
-          <Routes>
+      <BrandingProvider>
+        <AuthProvider>
+          <BrowserRouter basename={import.meta.env.BASE_URL}>
+            <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -78,9 +80,10 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
+      </BrandingProvider>
     </ThemeProvider>
   );
 }

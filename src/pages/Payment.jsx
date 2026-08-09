@@ -16,7 +16,7 @@ function calculateFinalPrice(course) {
 
 export default function Payment() {
   const { courseId } = useParams();
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
 
   const [course, setCourse] = useState(null);
   const [result, setResult] = useState(null);
@@ -60,6 +60,7 @@ export default function Payment() {
         return;
       }
       setResult((prev) => ({ ...prev, paid: true }));
+      await refreshProfile();
     } catch (verifyError) {
       setError(verifyError.message || "تعذر التحقق من الدفع.");
     } finally {

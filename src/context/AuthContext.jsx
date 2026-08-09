@@ -1,14 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
 import {
   getLandingRouteByRole,
   loginRequest,
   logoutRequest,
+  refreshProfileRequest,
   registerRequest,
   updateProfileRequest,
   watchAuthState,
 } from "../lib/authService.js";
-import { db } from "../services/firebase.js";
 
 const AuthContext = createContext(null);
 
@@ -18,60 +17,13 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    let unsubscribeProfile = null;
-
     const unsubscribe = watchAuthState((nextUser, nextToken) => {
       setToken(nextToken);
-
-      if (!nextUser) {
-        if (unsubscribeProfile) {
-          unsubscribeProfile();
-          unsubscribeProfile = null;
-        }
-        setUser(null);
-        setIsLoading(false);
-        return;
-      }
-
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-      }
-
-      unsubscribeProfile = onSnapshot(
-        doc(db, "users", nextUser.uid),
-        (snapshot) => {
-          const profile = snapshot.exists() ? snapshot.data() : {};
-          if (profile.isBlocked) {
-            logoutRequest().finally(() => {
-              setUser(null);
-              setToken(null);
-              setIsLoading(false);
-            });
-            return;
-          }
-          setUser({
-            ...nextUser,
-            ...profile,
-            uid: nextUser.uid,
-            enrolledCourses: profile.enrolledCourses || nextUser.enrolledCourses || [],
-            progress: profile.progress || nextUser.progress || {},
-            quizResults: profile.quizResults || nextUser.quizResults || {},
-          });
-          setIsLoading(false);
-        },
-        () => {
-          setUser(nextUser);
-          setIsLoading(false);
-        }
-      );
+      setUser(nextUser);
+      setIsLoading(false);
     });
 
-    return () => {
-      unsubscribe();
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-      }
-    };
+    return () => unsubscribe();
   }, []);
 
   async function login(payload) {
@@ -94,6 +46,13 @@ export function AuthProvider({ children }) {
     return updatedUser;
   }
 
+  async function refreshProfile() {
+    const { user: refreshedUser, token: refreshedToken } = await refreshProfileRequest();
+    setUser(refreshedUser);
+    setToken(refreshedToken);
+    return refreshedUser;
+  }
+
   async function logout() {
     await logoutRequest();
     setUser(null);
@@ -109,6 +68,7 @@ export function AuthProvider({ children }) {
       login,
       register,
       updateProfile,
+      refreshProfile,
       logout,
       getLandingRouteByRole,
     }),

@@ -14,7 +14,7 @@ function lessonUnlocked(index, units, watchedLessons) {
 
 export default function CourseDetails() {
   const { courseId } = useParams();
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
 
   const [course, setCourse] = useState(null);
   const [selectedContentIndex, setSelectedContentIndex] = useState(0);
@@ -75,6 +75,7 @@ export default function CourseDetails() {
         unitId: selectedUnit.unitId,
         totalUnits: units.length,
       });
+      await refreshProfile();
     } catch (saveError) {
       setError(saveError.message || "تعذر حفظ تقدم الدرس.");
     } finally {
@@ -138,6 +139,7 @@ export default function CourseDetails() {
         quiz: { ...selectedContent, answers: quizAnswers },
       });
       setQuizResult(result);
+      await refreshProfile();
     } catch (quizError) {
       setError(quizError.message || "تعذر تصحيح الكويز.");
     } finally {

@@ -1,18 +1,4 @@
-import {
-  addDoc,
-  arrayUnion,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { db, tenantId } from "./firebase.js";
+import { api } from "./apiClient.js";
 
 export function extractYouTubeVideoId(value) {
   const raw = String(value || "").trim();
@@ -52,6 +38,18 @@ function normalizeUnits(units = []) {
     .filter((unit) => unit.title && unit.youtubeVideoId);
 }
 
+function normalizeQuestions(questions = []) {
+  return questions
+    .map((question, index) => ({
+      questionId: question.questionId || `question_${index + 1}`,
+      prompt: String(question.prompt || "").trim(),
+      choices: (question.choices || []).map((choice) => String(choice || "").trim()).filter(Boolean).slice(0, 4),
+      correctIndex: Number(question.correctIndex || 0),
+      points: Number(question.points || 1),
+    }))
+    .filter((question) => question.prompt && question.choices.length >= 2 && question.correctIndex < question.choices.length);
+}
+
 function normalizeQuizzes(quizzes = []) {
   return quizzes
     .map((quiz, index) => ({
@@ -63,18 +61,6 @@ function normalizeQuizzes(quizzes = []) {
       questions: normalizeQuestions(quiz.questions || []),
     }))
     .filter((quiz) => quiz.title);
-}
-
-function normalizeQuestions(questions = []) {
-  return questions
-    .map((question, index) => ({
-      questionId: question.questionId || `question_${index + 1}`,
-      prompt: String(question.prompt || "").trim(),
-      choices: (question.choices || []).map((choice) => String(choice || "").trim()).filter(Boolean).slice(0, 4),
-      correctIndex: Number(question.correctIndex || 0),
-      points: Number(question.points || 1),
-    }))
-    .filter((question) => question.prompt && question.choices.length >= 2 && question.correctIndex < question.choices.length);
 }
 
 function normalizeResources(resources = []) {
@@ -91,6 +77,27 @@ function normalizeResources(resources = []) {
     .filter((resource) => resource.title && resource.fileUrl);
 }
 
+function mapCourse(course) {
+  return {
+    id: course.id,
+    teacherId: course.teacherId,
+    title: course.title,
+    slug: course.slug,
+    description: course.description || "",
+    grade: course.grade || "",
+    price: Number(course.price || 0),
+    discountPercent: Number(course.discountPercent || 0),
+    thumbnailUrl: course.thumbnailUrl || "",
+    isPublished: Boolean(course.isPublished),
+    units: course.units || [],
+    resources: course.resources || [],
+    quizzes: course.quizzes || [],
+    studentsCount: Number(course.studentsCount || 0),
+    createdAt: course.createdAt,
+    updatedAt: course.updatedAt,
+  };
+}
+
 export function buildCourseContent(course = {}) {
   const videos = (course.units || []).map((unit) => ({ ...unit, type: "video", sortOrder: Number(unit.order || 0) }));
   const resources = (course.resources || []).map((resource) => ({
@@ -102,7 +109,7 @@ export function buildCourseContent(course = {}) {
   return [...videos, ...resources, ...quizzes].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export async function createCourse({ teacherId, payload }) {
+export async function createCourse({ payload }) {
   const title = String(payload.title || "").trim();
   const description = String(payload.description || "").trim();
   const grade = String(payload.grade || "").trim();
@@ -116,9 +123,7 @@ export async function createCourse({ teacherId, payload }) {
   if (!thumbnailUrl) throw new Error("صورة الكورس مطلوبة.");
   if (!units.length && !resources.length) throw new Error("لازم تضيف على الأقل درس فيديو أو ملف.");
 
-  await addDoc(collection(db, "courses"), {
-    tenantId,
-    teacherId,
+  const created = await api.post("/courses", {
     title,
     description,
     grade,
@@ -127,35 +132,42 @@ export async function createCourse({ teacherId, payload }) {
     thumbnailUrl,
     units,
     resources,
-    quizzes: [],
-    studentsCount: 0,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    isPublished: true,
   });
+  return mapCourse(created);
 }
 
 export async function deleteCourse(courseId) {
-  await deleteDoc(doc(db, "courses", courseId));
+  await api.delete(`/courses/${courseId}`);
+}
+
+async function loadCourses() {
+  const data = await api.get("/courses?includeUnpublished=true");
+  return (data || []).map(mapCourse);
 }
 
 export function subscribeCourses(callback) {
-  const q = query(collection(db, "courses"), where("tenantId", "==", tenantId));
-  return onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }));
-    data.sort((a, b) => {
-      const aValue = a.createdAt?.seconds || 0;
-      const bValue = b.createdAt?.seconds || 0;
-      return bValue - aValue;
-    });
-    callback(data);
-  });
+  let active = true;
+  const load = () =>
+    loadCourses()
+      .then((items) => {
+        if (active) callback(items);
+      })
+      .catch(() => {
+        if (active) callback([]);
+      });
+
+  load();
+  const timer = setInterval(load, 7000);
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
 }
 
 export async function getCourseById(courseId) {
-  const docRef = doc(db, "courses", courseId);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
+  const course = await api.get(`/courses/${courseId}?includeUnpublished=true`);
+  return mapCourse(course);
 }
 
 export async function addQuizToCourse(courseId, quizPayload) {
@@ -165,179 +177,96 @@ export async function addQuizToCourse(courseId, quizPayload) {
   const questions = normalizeQuestions(quizPayload.questions || []);
   if (!questions.length) throw new Error("لازم تضيف سؤالين اختيارات على الأقل في الكويز.");
 
-  const quizzes = normalizeQuizzes([
-    ...(course.quizzes || []),
-    {
-      ...quizPayload,
-      quizId: `quiz_${Date.now()}`,
-      questions,
-      questionsCount: questions.length,
-      order: Number(quizPayload.order || buildCourseContent(course).length + 1),
-    },
-  ]);
-  await updateDoc(doc(db, "courses", courseId), {
-    quizzes,
-    updatedAt: serverTimestamp(),
+  const next = await api.post(`/courses/${courseId}/quizzes`, {
+    quizId: `quiz_${Date.now()}`,
+    title: String(quizPayload.title || "").trim(),
+    minutes: Number(quizPayload.minutes || 10),
+    questionsCount: questions.length,
+    order: Number(quizPayload.order || buildCourseContent(course).length + 1),
+    questions,
   });
+  return mapCourse(next);
 }
 
 export async function addResourceToCourse(courseId, resourcePayload) {
   const course = await getCourseById(courseId);
   if (!course) throw new Error("الكورس غير موجود.");
 
-  const resources = normalizeResources([
-    ...(course.resources || []),
+  const normalized = normalizeResources([
     {
       ...resourcePayload,
       resourceId: `resource_${Date.now()}`,
       order: Number(resourcePayload.order || buildCourseContent(course).length + 1),
     },
   ]);
+  if (!normalized.length) throw new Error("الملف غير صالح.");
 
-  await updateDoc(doc(db, "courses", courseId), {
-    resources,
-    updatedAt: serverTimestamp(),
+  const next = await api.post(`/courses/${courseId}/resources`, normalized[0]);
+  return mapCourse(next);
+}
+
+export async function enrollStudentInCourse({ courseId }) {
+  await api.post(`/courses/${courseId}/enroll`, {});
+}
+
+export async function markLessonCompleted({ courseId, unitId, totalUnits }) {
+  await api.post(`/courses/${courseId}/progress/lessons`, {
+    unitId,
+    totalUnits: Number(totalUnits || 1),
   });
 }
 
-export async function enrollStudentInCourse({ uid, courseId }) {
-  const userRef = doc(db, "users", uid);
-  await updateDoc(userRef, {
-    enrolledCourses: arrayUnion(courseId),
-    updatedAt: serverTimestamp(),
-  });
-
-  const courseRef = doc(db, "courses", courseId);
-  const snap = await getDoc(courseRef);
-  if (snap.exists()) {
-    const current = Number(snap.data().studentsCount || 0);
-    await updateDoc(courseRef, { studentsCount: current + 1, updatedAt: serverTimestamp() });
-  }
-}
-
-export async function markLessonCompleted({ uid, courseId, unitId, totalUnits }) {
-  const userRef = doc(db, "users", uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error("بيانات الطالب غير موجودة.");
-
-  const user = snap.data();
-  const progress = user.progress || {};
-  const courseProgress = progress[courseId] || { watchedLessons: [], percentage: 0 };
-  const watchedLessons = Array.from(new Set([...(courseProgress.watchedLessons || []), unitId]));
-  const percentage = Math.min(100, Math.round((watchedLessons.length / Math.max(totalUnits, 1)) * 100));
-
-  const nextProgress = {
-    ...progress,
-    [courseId]: {
-      watchedLessons,
-      percentage,
-      updatedAt: new Date().toISOString(),
-    },
-  };
-
-  await updateDoc(userRef, {
-    progress: nextProgress,
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export async function submitQuizAttempt({ uid, courseId, quiz }) {
-  const userRef = doc(db, "users", uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error("بيانات الطالب غير موجودة.");
-
-  const questions = normalizeQuestions(quiz.questions || []);
-  const answers = quiz.answers || {};
-  const totalPoints = questions.reduce((sum, question) => sum + Number(question.points || 1), 0);
-  const earnedPoints = questions.reduce((sum, question) => {
-    return Number(answers[question.questionId]) === Number(question.correctIndex) ? sum + Number(question.points || 1) : sum;
-  }, 0);
-  const percentage = totalPoints ? Math.round((earnedPoints / totalPoints) * 100) : 0;
-
-  const attempt = {
-    tenantId,
-    uid,
-    courseId,
+export async function submitQuizAttempt({ courseId, quiz }) {
+  return api.post(`/courses/${courseId}/quiz-attempts`, {
     quizId: quiz.quizId,
     quizTitle: quiz.title,
-    answers,
-    totalPoints,
-    earnedPoints,
-    percentage,
-    createdAt: serverTimestamp(),
-  };
-
-  await addDoc(collection(db, "quizAttempts"), attempt);
-
-  const user = snap.data();
-  const quizResults = {
-    ...(user.quizResults || {}),
-    [courseId]: {
-      ...(user.quizResults?.[courseId] || {}),
-      [quiz.quizId]: {
-        earnedPoints,
-        totalPoints,
-        percentage,
-        updatedAt: new Date().toISOString(),
-      },
-    },
-  };
-
-  await updateDoc(userRef, {
-    quizResults,
-    updatedAt: serverTimestamp(),
+    answers: quiz.answers || {},
+    questions: normalizeQuestions(quiz.questions || []),
   });
-
-  return { earnedPoints, totalPoints, percentage };
 }
 
 export function subscribeQuizAttempts(callback) {
-  const q = query(collection(db, "quizAttempts"), where("tenantId", "==", tenantId));
-  return onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-    data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    callback(data);
-  });
+  let active = true;
+  const load = () =>
+    api
+      .get("/courses/quiz-attempts")
+      .then((items) => {
+        if (active) callback(items || []);
+      })
+      .catch(() => {
+        if (active) callback([]);
+      });
+
+  load();
+  const timer = setInterval(load, 8000);
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
 }
 
 export async function getTenantStudents() {
-  const q = query(collection(db, "users"), where("tenantId", "==", tenantId), where("role", "==", "student"));
-  const snap = await getDocs(q);
-  const data = snap.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }));
-  data.sort((a, b) => {
-    const aValue = a.createdAt?.seconds || 0;
-    const bValue = b.createdAt?.seconds || 0;
-    return bValue - aValue;
-  });
-  return data;
+  return api.get("/users/students");
 }
 
 export async function blockStudent(uid) {
-  await updateDoc(doc(db, "users", uid), {
-    isBlocked: true,
-    updatedAt: serverTimestamp(),
-  });
+  await api.patch(`/users/${uid}/block`, {});
 }
 
 export async function unblockStudent(uid) {
-  await updateDoc(doc(db, "users", uid), {
-    isBlocked: false,
-    updatedAt: serverTimestamp(),
-  });
+  await api.patch(`/users/${uid}/unblock`, {});
 }
 
 export async function phoneExists(phone) {
   const normalized = String(phone || "").replace(/\D/g, "");
   if (!normalized) return false;
-  const q = query(collection(db, "users"), where("tenantId", "==", tenantId), where("phone", "==", normalized));
-  const snap = await getDocs(q);
-  return !snap.empty;
+  const students = await getTenantStudents();
+  return students.some((student) => String(student.phone || "") === normalized);
 }
 
 export async function emailExists(email) {
   const normalized = String(email || "").trim().toLowerCase();
   if (!normalized) return false;
-  const q = query(collection(db, "users"), where("tenantId", "==", tenantId), where("email", "==", normalized));
-  const snap = await getDocs(q);
-  return !snap.empty;
+  const students = await getTenantStudents();
+  return students.some((student) => String(student.email || "").trim().toLowerCase() === normalized);
 }
