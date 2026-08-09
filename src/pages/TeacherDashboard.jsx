@@ -32,7 +32,7 @@ import {
   unblockStudent,
 } from "../services/courseService.js";
 import { subscribePayments } from "../services/paymentService.js";
-import { uploadFileToCloudinary, uploadImageToCloudinary } from "../services/cloudinaryService.js";
+import { uploadFileToStorage, uploadImageToStorage } from "../services/storageService.js";
 
 const tabs = [
   { id: "courses", label: "الكورسات", icon: BookOpen },
@@ -176,7 +176,7 @@ export default function TeacherDashboard() {
     if (!file) return;
     setIsUploadingImage(true);
     try {
-      const url = await uploadImageToCloudinary(file);
+      const url = await uploadImageToStorage(file);
       setCourseForm((prev) => ({ ...prev, thumbnailUrl: url }));
     } catch (uploadError) {
       setErrorMessage(uploadError.message || "فشل رفع الصورة.");
@@ -191,7 +191,7 @@ export default function TeacherDashboard() {
     if (!file) return;
     setIsUploadingFile(true);
     try {
-      const url = await uploadFileToCloudinary(file);
+      const url = await uploadFileToStorage(file);
       setFileForm((prev) => ({
         ...prev,
         fileUrl: url,

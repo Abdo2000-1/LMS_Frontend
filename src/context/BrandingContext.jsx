@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { api } from "../services/apiClient.js";
+import { findOne } from "../services/mongoService.js";
 
 const BrandingContext = createContext(null);
 
@@ -15,8 +15,7 @@ export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState(defaultBranding);
 
   useEffect(() => {
-    api
-      .get("/branding")
+    findOne("branding", { filter: {} })
       .then((payload) => setBranding({ ...defaultBranding, ...(payload || {}) }))
       .catch(() => setBranding(defaultBranding));
   }, []);

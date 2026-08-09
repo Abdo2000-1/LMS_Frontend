@@ -1,4 +1,7 @@
-import { api, clearSession, getSession, setSession } from "../services/apiClient.js";
+import { account, ID } from "./appwrite.js";
+import { findOne, insertOne, updateOne } from "../services/mongoService.js";
+
+const USERS_COLLECTION = "users";
 
 const GOVERNORATES = [
   "القاهرة",
@@ -37,110 +40,141 @@ export function normalizePhone(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
-function mapApiUser(payload) {
+function normalizeRole(role) {
+  const normalized = String(role || "student").toLowerCase();
+  if (["teacher", "developer"].includes(normalized)) return normalized;
+  return "student";
+}
+
+export function mapUserProfile(appwriteUser, profile = {}) {
+  if (!appwriteUser && !profile) return null;
   return {
-    uid: payload.uid || payload.userId || "",
-    name: payload.name || payload.fullName || "مستخدم",
-    email: payload.email || "",
-    phone: payload.phone || "",
-    role: payload.role || "student",
-    grade: payload.grade || "",
-    governorate: payload.governorate || "",
-    enrolledCourses: payload.enrolledCourses || [],
-    progress: payload.progress || {},
-    quizResults: payload.quizResults || {},
-    isBlocked: Boolean(payload.isBlocked),
+    uid: profile.uid || profile.appwriteUserId || appwriteUser?.$id || "",
+    appwriteUserId: profile.appwriteUserId || appwriteUser?.$id || "",
+    name: profile.name || profile.fullName || appwriteUser?.name || "مستخدم",
+    email: profile.email || appwriteUser?.email || "",
+    phone: profile.phone || "",
+    role: normalizeRole(profile.role),
+    grade: profile.grade || "",
+    governorate: profile.governorate || "",
+    enrolledCourses: profile.enrolledCourses || [],
+    progress: profile.progress || {},
+    quizResults: profile.quizResults || {},
+    isBlocked: Boolean(profile.isBlocked),
   };
 }
 
-function writeSessionFromAuthResponse(payload) {
-  const user = mapApiUser(payload);
-  const session = {
-    accessToken: payload.accessToken,
-    refreshToken: payload.refreshToken,
-    user,
+async function findProfileByAppwriteId(appwriteUserId) {
+  return findOne(USERS_COLLECTION, { filter: { appwriteUserId } });
+}
+
+async function findProfileByPhone(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return null;
+  return findOne(USERS_COLLECTION, { filter: { phone: normalizedPhone } });
+}
+
+async function ensureProfile(appwriteUser, overrides = {}) {
+  const existing = await findProfileByAppwriteId(appwriteUser.$id);
+  if (existing) return mapUserProfile(appwriteUser, existing);
+
+  const now = new Date().toISOString();
+  const document = {
+    appwriteUserId: appwriteUser.$id,
+    uid: appwriteUser.$id,
+    name: overrides.name || appwriteUser.name || "",
+    email: appwriteUser.email || "",
+    phone: normalizePhone(overrides.phone),
+    role: "student",
+    grade: overrides.grade || "",
+    governorate: overrides.governorate || "",
+    enrolledCourses: [],
+    progress: {},
+    quizResults: {},
+    isBlocked: false,
+    createdAt: now,
+    updatedAt: now,
   };
-  setSession(session);
-  return session;
+
+  const created = await insertOne(USERS_COLLECTION, document);
+  return mapUserProfile(appwriteUser, created);
 }
 
 export async function refreshProfileRequest() {
-  const session = getSession();
-  if (!session?.accessToken) return { user: null, token: null };
-
-  const payload = await api.get("/auth/me");
-  const nextSession = {
-    ...session,
-    user: mapApiUser(payload),
-  };
-  setSession(nextSession);
-  return { user: nextSession.user, token: nextSession.accessToken };
+  const appwriteUser = await account.get();
+  const profile = await ensureProfile(appwriteUser);
+  return { user: profile, token: appwriteUser.$id };
 }
 
 export async function registerRequest({ name, email, phone, grade, governorate, password }) {
-  const normalizedPhone = normalizePhone(phone);
-  const payload = await api.post("/auth/register", {
-    fullName: String(name || "").trim(),
-    email: String(email || "").trim().toLowerCase(),
-    phone: normalizedPhone,
-    grade: String(grade || "").trim(),
-    governorate: String(governorate || "").trim(),
-    password,
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  const cleanName = String(name || "").trim();
+  await account.create(ID.unique(), cleanEmail, password, cleanName);
+  await account.createEmailPasswordSession(cleanEmail, password);
+  const appwriteUser = await account.get();
+  const profile = await ensureProfile(appwriteUser, {
+    name: cleanName,
+    phone,
+    grade,
+    governorate,
   });
-  const session = writeSessionFromAuthResponse(payload);
-  return { user: session.user, token: session.accessToken };
+  return { user: profile, token: appwriteUser.$id };
 }
 
-export async function loginRequest({ phone, password }) {
-  const normalizedPhone = normalizePhone(phone);
-  const payload = await api.post("/auth/login", {
-    phone: normalizedPhone,
-    password,
-  });
-  const session = writeSessionFromAuthResponse(payload);
-  return { user: session.user, token: session.accessToken };
+export async function loginRequest({ email, phone, password }) {
+  let loginEmail = String(email || "").trim().toLowerCase();
+  if (!loginEmail && phone) {
+    const profile = await findProfileByPhone(phone);
+    loginEmail = String(profile?.email || "").trim().toLowerCase();
+  }
+
+  if (!loginEmail) {
+    throw new Error("لم يتم العثور على حساب مرتبط بهذا الرقم.");
+  }
+
+  await account.createEmailPasswordSession(loginEmail, password);
+  const appwriteUser = await account.get();
+  const profile = await ensureProfile(appwriteUser);
+  return { user: profile, token: appwriteUser.$id };
 }
 
 export async function updateProfileRequest({ name }) {
-  const payload = await api.patch("/auth/me", { name: String(name || "").trim() });
-  const session = getSession();
-  if (session) {
-    const next = { ...session, user: mapApiUser(payload) };
-    setSession(next);
-    return { user: next.user };
+  const appwriteUser = await account.get();
+  const cleanName = String(name || "").trim();
+  if (cleanName) {
+    await account.updateName(cleanName);
   }
-  return { user: mapApiUser(payload) };
+
+  await updateOne(USERS_COLLECTION, {
+    filter: { appwriteUserId: appwriteUser.$id },
+    update: {
+      $set: {
+        name: cleanName || appwriteUser.name,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  return refreshProfileRequest();
 }
 
 export async function logoutRequest() {
-  const session = getSession();
-  if (session?.refreshToken) {
-    try {
-      await api.post("/auth/revoke", { refreshToken: session.refreshToken });
-    } catch {
-      // no-op: local session must still be cleared
-    }
-  }
-  clearSession();
+  await account.deleteSession("current").catch(() => undefined);
 }
 
 export function watchAuthState(callback) {
-  const session = getSession();
-  if (!session?.accessToken) {
-    callback(null, null);
-    return () => {};
-  }
-
+  let active = true;
   refreshProfileRequest()
     .then(({ user, token }) => {
-      callback(user, token);
+      if (active) callback(user, token);
     })
     .catch(() => {
-      clearSession();
-      callback(null, null);
+      if (active) callback(null, null);
     });
 
-  return () => {};
+  return () => {
+    active = false;
+  };
 }
 
 export function getLandingRouteByRole(role) {

@@ -1,4 +1,8 @@
-import { api } from "./apiClient.js";
+import { deleteOne, find, findOne, insertOne, objectIdFilter, updateOne } from "./mongoService.js";
+
+const COURSES_COLLECTION = "courses";
+const USERS_COLLECTION = "users";
+const QUIZ_ATTEMPTS_COLLECTION = "quizAttempts";
 
 export function extractYouTubeVideoId(value) {
   const raw = String(value || "").trim();
@@ -9,9 +13,7 @@ export function extractYouTubeVideoId(value) {
 
   try {
     const url = new URL(raw);
-    if (url.hostname.includes("youtu.be")) {
-      return url.pathname.split("/").filter(Boolean)[0] || "";
-    }
+    if (url.hostname.includes("youtu.be")) return url.pathname.split("/").filter(Boolean)[0] || "";
     if (url.hostname.includes("youtube.com")) {
       if (url.pathname.startsWith("/embed/") || url.pathname.startsWith("/shorts/")) {
         return url.pathname.split("/").filter(Boolean)[1] || "";
@@ -30,7 +32,7 @@ function normalizeUnits(units = []) {
   return units
     .map((unit, index) => ({
       unitId: unit.unitId || `unit_${index + 1}`,
-      order: Number.isFinite(unit.order) ? unit.order : index + 1,
+      order: Number(unit.order || index + 1),
       title: String(unit.title || "").trim(),
       youtubeVideoId: extractYouTubeVideoId(unit.youtubeVideoId),
       isFree: Boolean(unit.isFree),
@@ -50,23 +52,10 @@ function normalizeQuestions(questions = []) {
     .filter((question) => question.prompt && question.choices.length >= 2 && question.correctIndex < question.choices.length);
 }
 
-function normalizeQuizzes(quizzes = []) {
-  return quizzes
-    .map((quiz, index) => ({
-      quizId: quiz.quizId || `quiz_${index + 1}`,
-      title: String(quiz.title || "").trim(),
-      minutes: Number(quiz.minutes || 10),
-      questionsCount: Number(quiz.questionsCount || quiz.questions?.length || 0),
-      order: Number.isFinite(quiz.order) ? quiz.order : index + 1,
-      questions: normalizeQuestions(quiz.questions || []),
-    }))
-    .filter((quiz) => quiz.title);
-}
-
 function normalizeResources(resources = []) {
   return resources
     .map((resource, index) => ({
-      resourceId: resource.resourceId || `resource_${index + 1}`,
+      resourceId: resource.resourceId || `resource_${Date.now()}_${index}`,
       title: String(resource.title || "").trim(),
       fileUrl: String(resource.fileUrl || "").trim(),
       fileName: String(resource.fileName || "").trim(),
@@ -80,15 +69,15 @@ function normalizeResources(resources = []) {
 function mapCourse(course) {
   return {
     id: course.id,
-    teacherId: course.teacherId,
-    title: course.title,
-    slug: course.slug,
+    teacherId: course.teacherId || "",
+    title: course.title || "",
+    slug: course.slug || "",
     description: course.description || "",
     grade: course.grade || "",
     price: Number(course.price || 0),
     discountPercent: Number(course.discountPercent || 0),
     thumbnailUrl: course.thumbnailUrl || "",
-    isPublished: Boolean(course.isPublished),
+    isPublished: course.isPublished !== false,
     units: course.units || [],
     resources: course.resources || [],
     quizzes: course.quizzes || [],
@@ -96,6 +85,14 @@ function mapCourse(course) {
     createdAt: course.createdAt,
     updatedAt: course.updatedAt,
   };
+}
+
+function slugify(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export function buildCourseContent(course = {}) {
@@ -109,12 +106,8 @@ export function buildCourseContent(course = {}) {
   return [...videos, ...resources, ...quizzes].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export async function createCourse({ payload }) {
+export async function createCourse({ teacherId, payload }) {
   const title = String(payload.title || "").trim();
-  const description = String(payload.description || "").trim();
-  const grade = String(payload.grade || "").trim();
-  const price = Number(payload.price || 0);
-  const discountPercent = Number(payload.discountPercent || 0);
   const thumbnailUrl = String(payload.thumbnailUrl || "").trim();
   const units = normalizeUnits(payload.units || []);
   const resources = normalizeResources(payload.resources || []);
@@ -123,27 +116,37 @@ export async function createCourse({ payload }) {
   if (!thumbnailUrl) throw new Error("صورة الكورس مطلوبة.");
   if (!units.length && !resources.length) throw new Error("لازم تضيف على الأقل درس فيديو أو ملف.");
 
-  const created = await api.post("/courses", {
+  const now = new Date().toISOString();
+  const created = await insertOne(COURSES_COLLECTION, {
+    teacherId,
     title,
-    description,
-    grade,
-    price,
-    discountPercent,
+    slug: `${slugify(title) || "course"}-${Date.now()}`,
+    description: String(payload.description || "").trim(),
+    grade: String(payload.grade || "").trim(),
+    price: Number(payload.price || 0),
+    discountPercent: Number(payload.discountPercent || 0),
     thumbnailUrl,
     units,
     resources,
+    quizzes: [],
+    studentsCount: 0,
     isPublished: true,
+    createdAt: now,
+    updatedAt: now,
   });
   return mapCourse(created);
 }
 
 export async function deleteCourse(courseId) {
-  await api.delete(`/courses/${courseId}`);
+  await deleteOne(COURSES_COLLECTION, objectIdFilter(courseId));
 }
 
 async function loadCourses() {
-  const data = await api.get("/courses?includeUnpublished=true");
-  return (data || []).map(mapCourse);
+  const data = await find(COURSES_COLLECTION, {
+    filter: {},
+    sort: { createdAt: -1 },
+  });
+  return data.map(mapCourse);
 }
 
 export function subscribeCourses(callback) {
@@ -166,32 +169,35 @@ export function subscribeCourses(callback) {
 }
 
 export async function getCourseById(courseId) {
-  const course = await api.get(`/courses/${courseId}?includeUnpublished=true`);
+  const course = await findOne(COURSES_COLLECTION, { filter: objectIdFilter(courseId) });
+  if (!course) throw new Error("الكورس غير موجود.");
   return mapCourse(course);
 }
 
 export async function addQuizToCourse(courseId, quizPayload) {
   const course = await getCourseById(courseId);
-  if (!course) throw new Error("الكورس غير موجود.");
-
   const questions = normalizeQuestions(quizPayload.questions || []);
   if (!questions.length) throw new Error("لازم تضيف سؤالين اختيارات على الأقل في الكويز.");
 
-  const next = await api.post(`/courses/${courseId}/quizzes`, {
+  const quiz = {
     quizId: `quiz_${Date.now()}`,
     title: String(quizPayload.title || "").trim(),
     minutes: Number(quizPayload.minutes || 10),
     questionsCount: questions.length,
     order: Number(quizPayload.order || buildCourseContent(course).length + 1),
     questions,
+  };
+
+  const quizzes = [...(course.quizzes || []), quiz];
+  await updateOne(COURSES_COLLECTION, {
+    filter: objectIdFilter(courseId),
+    update: { $set: { quizzes, updatedAt: new Date().toISOString() } },
   });
-  return mapCourse(next);
+  return { ...course, quizzes };
 }
 
 export async function addResourceToCourse(courseId, resourcePayload) {
   const course = await getCourseById(courseId);
-  if (!course) throw new Error("الكورس غير موجود.");
-
   const normalized = normalizeResources([
     {
       ...resourcePayload,
@@ -201,37 +207,84 @@ export async function addResourceToCourse(courseId, resourcePayload) {
   ]);
   if (!normalized.length) throw new Error("الملف غير صالح.");
 
-  const next = await api.post(`/courses/${courseId}/resources`, normalized[0]);
-  return mapCourse(next);
+  const resources = [...(course.resources || []), normalized[0]];
+  await updateOne(COURSES_COLLECTION, {
+    filter: objectIdFilter(courseId),
+    update: { $set: { resources, updatedAt: new Date().toISOString() } },
+  });
+  return { ...course, resources };
 }
 
-export async function enrollStudentInCourse({ courseId }) {
-  await api.post(`/courses/${courseId}/enroll`, {});
-}
-
-export async function markLessonCompleted({ courseId, unitId, totalUnits }) {
-  await api.post(`/courses/${courseId}/progress/lessons`, {
-    unitId,
-    totalUnits: Number(totalUnits || 1),
+export async function enrollStudentInCourse({ uid, courseId }) {
+  const user = await findOne(USERS_COLLECTION, { filter: { appwriteUserId: uid } });
+  if (!user) throw new Error("المستخدم غير موجود.");
+  const enrolledCourses = Array.from(new Set([...(user.enrolledCourses || []), courseId]));
+  await updateOne(USERS_COLLECTION, {
+    filter: { appwriteUserId: uid },
+    update: { $set: { enrolledCourses, updatedAt: new Date().toISOString() } },
   });
 }
 
-export async function submitQuizAttempt({ courseId, quiz }) {
-  return api.post(`/courses/${courseId}/quiz-attempts`, {
+export async function markLessonCompleted({ uid, courseId, unitId, totalUnits }) {
+  const user = await findOne(USERS_COLLECTION, { filter: { appwriteUserId: uid } });
+  if (!user) throw new Error("المستخدم غير موجود.");
+  const progress = { ...(user.progress || {}) };
+  const current = progress[courseId] || { watchedLessons: [], percentage: 0 };
+  const watchedLessons = Array.from(new Set([...(current.watchedLessons || []), unitId]));
+  progress[courseId] = {
+    watchedLessons,
+    percentage: Math.min(100, Math.round((watchedLessons.length / Math.max(Number(totalUnits || 1), 1)) * 100)),
+    updatedAt: new Date().toISOString(),
+  };
+  await updateOne(USERS_COLLECTION, {
+    filter: { appwriteUserId: uid },
+    update: { $set: { progress, updatedAt: new Date().toISOString() } },
+  });
+}
+
+export async function submitQuizAttempt({ uid, courseId, quiz }) {
+  const questions = normalizeQuestions(quiz.questions || []);
+  const totalPoints = questions.reduce((sum, question) => sum + Number(question.points || 1), 0);
+  const earnedPoints = questions.reduce((sum, question) => {
+    return sum + (Number(quiz.answers?.[question.questionId]) === Number(question.correctIndex) ? Number(question.points || 1) : 0);
+  }, 0);
+  const percentage = totalPoints ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+  const now = new Date().toISOString();
+
+  await insertOne(QUIZ_ATTEMPTS_COLLECTION, {
+    uid,
+    courseId,
     quizId: quiz.quizId,
     quizTitle: quiz.title,
+    earnedPoints,
+    totalPoints,
+    percentage,
     answers: quiz.answers || {},
-    questions: normalizeQuestions(quiz.questions || []),
+    createdAt: now,
   });
+
+  const user = await findOne(USERS_COLLECTION, { filter: { appwriteUserId: uid } });
+  if (user) {
+    const quizResults = { ...(user.quizResults || {}) };
+    quizResults[courseId] = {
+      ...(quizResults[courseId] || {}),
+      [quiz.quizId]: { earnedPoints, totalPoints, percentage, updatedAt: now },
+    };
+    await updateOne(USERS_COLLECTION, {
+      filter: { appwriteUserId: uid },
+      update: { $set: { quizResults, updatedAt: now } },
+    });
+  }
+
+  return { earnedPoints, totalPoints, percentage };
 }
 
 export function subscribeQuizAttempts(callback) {
   let active = true;
   const load = () =>
-    api
-      .get("/courses/quiz-attempts")
+    find(QUIZ_ATTEMPTS_COLLECTION, { sort: { createdAt: -1 } })
       .then((items) => {
-        if (active) callback(items || []);
+        if (active) callback(items);
       })
       .catch(() => {
         if (active) callback([]);
@@ -246,27 +299,34 @@ export function subscribeQuizAttempts(callback) {
 }
 
 export async function getTenantStudents() {
-  return api.get("/users/students");
+  return find(USERS_COLLECTION, {
+    filter: { role: "student" },
+    sort: { createdAt: -1 },
+  });
 }
 
 export async function blockStudent(uid) {
-  await api.patch(`/users/${uid}/block`, {});
+  await updateOne(USERS_COLLECTION, {
+    filter: { appwriteUserId: uid },
+    update: { $set: { isBlocked: true, updatedAt: new Date().toISOString() } },
+  });
 }
 
 export async function unblockStudent(uid) {
-  await api.patch(`/users/${uid}/unblock`, {});
+  await updateOne(USERS_COLLECTION, {
+    filter: { appwriteUserId: uid },
+    update: { $set: { isBlocked: false, updatedAt: new Date().toISOString() } },
+  });
 }
 
 export async function phoneExists(phone) {
   const normalized = String(phone || "").replace(/\D/g, "");
   if (!normalized) return false;
-  const students = await getTenantStudents();
-  return students.some((student) => String(student.phone || "") === normalized);
+  return Boolean(await findOne(USERS_COLLECTION, { filter: { phone: normalized } }));
 }
 
 export async function emailExists(email) {
   const normalized = String(email || "").trim().toLowerCase();
   if (!normalized) return false;
-  const students = await getTenantStudents();
-  return students.some((student) => String(student.email || "").trim().toLowerCase() === normalized);
+  return Boolean(await findOne(USERS_COLLECTION, { filter: { email: normalized } }));
 }

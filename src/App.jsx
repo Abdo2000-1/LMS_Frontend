@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { BrandingProvider } from "./context/BrandingContext.jsx";
@@ -19,7 +19,7 @@ export default function App() {
     <ThemeProvider>
       <BrandingProvider>
         <AuthProvider>
-          <BrowserRouter basename={import.meta.env.BASE_URL}>
+          <HashRouter>
             <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
@@ -81,7 +81,7 @@ export default function App() {
               }
             />
             </Routes>
-          </BrowserRouter>
+          </HashRouter>
         </AuthProvider>
       </BrandingProvider>
     </ThemeProvider>
