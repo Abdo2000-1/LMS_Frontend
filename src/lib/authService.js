@@ -1,5 +1,5 @@
 import { account, ID } from "./appwrite.js";
-import { findOne, insertOne, updateOne } from "../services/mongoService.js";
+import { findOne, insertOne, updateOne } from "../services/appwriteDbService.js";
 
 const USERS_COLLECTION = "users";
 

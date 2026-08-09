@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { findOne } from "../services/mongoService.js";
+import { findOne } from "../services/appwriteDbService.js";
 
 const BrandingContext = createContext(null);
 

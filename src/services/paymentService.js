@@ -1,4 +1,4 @@
-import { find, insertOne, objectIdFilter, updateOne } from "./mongoService.js";
+import { find, insertOne, objectIdFilter, updateOne } from "./appwriteDbService.js";
 import { enrollStudentInCourse } from "./courseService.js";
 
 const PAYMENTS_COLLECTION = "payments";
