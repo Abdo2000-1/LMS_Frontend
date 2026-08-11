@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Languages, LayoutDashboard, BookOpen, UserCircle, LogOut, ShieldCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useBranding } from "../context/BrandingContext.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 
 function getRoleLabel(role) {
@@ -36,6 +37,7 @@ function getLinks(role) {
 
 export default function AppHeader({ active }) {
   const { user, logout } = useAuth();
+  const { teacherDisplayName, logoUrl } = useBranding();
   const navigate = useNavigate();
   const links = getLinks(user?.role);
 
@@ -85,8 +87,12 @@ export default function AppHeader({ active }) {
             <p className="text-xs text-slate-400 dark:text-slate-500">{getRoleLabel(user?.role)}</p>
           </div>
           <Link to="/" className="text-xl font-extrabold text-red-800 dark:text-amber-400 flex items-center gap-1.5">
-            الأستاذ
-            <Languages size={20} />
+            {logoUrl ? (
+              <img src={logoUrl} alt={teacherDisplayName} className="h-8 w-8 rounded-lg object-cover" />
+            ) : (
+              <Languages size={20} />
+            )}
+            {teacherDisplayName}
           </Link>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { BookOpen, LayoutDashboard, UserCircle, ShieldCheck, GraduationCap, Home } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useBranding } from "../context/BrandingContext.jsx";
 import AppHeader from "./AppHeader.jsx";
 import Footer from "./Footer.jsx";
 
@@ -29,6 +30,7 @@ function getSidebarLinks(role) {
 
 export default function DashboardLayout({ active, children }) {
   const { user } = useAuth();
+  const { teacherDisplayName } = useBranding();
   const links = getSidebarLinks(user?.role);
 
   return (
@@ -42,7 +44,7 @@ export default function DashboardLayout({ active, children }) {
         <aside className="hidden lg:block">
           <div className="sticky top-24 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 backdrop-blur p-3 shadow-sm">
             <div className="px-3 py-3 mb-2 border-b border-slate-100 dark:border-slate-800">
-              <p className="text-sm font-extrabold">{user?.name || "الأستاذ"}</p>
+              <p className="text-sm font-extrabold">{user?.name || teacherDisplayName}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{user?.phone || user?.email}</p>
             </div>
             <nav className="space-y-1">

@@ -1,10 +1,11 @@
 /**
  * apiClient.js
  * Axios HTTP client configured to talk to the .NET LMS backend.
- * Handles JWT token injection and automatic refresh on 401.
+ * Handles JWT token injection, automatic refresh on 401, and global error notifications.
  */
 
 import axios from "axios";
+import { notifyError } from "./notificationBus.js";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5102";
 
@@ -14,7 +15,14 @@ export const apiClient = axios.create({
     "Content-Type": "application/json",
   },
   withCredentials: false,
+  timeout: 30000,
 });
+
+let onSessionExpired = null;
+
+export function setSessionExpiredHandler(handler) {
+  onSessionExpired = handler;
+}
 
 // ─── Token helpers ─────────────────────────────────────────────
 export function getStoredTokens() {
@@ -52,11 +60,27 @@ export function getStoredUser() {
   }
 }
 
+function extractApiErrorMessage(error) {
+  return (
+    error?.response?.data?.detail ||
+    error?.response?.data?.title ||
+    error?.response?.data?.message ||
+    error?.message ||
+    "حدث خطأ غير متوقع."
+  );
+}
+
+function handleSessionExpired() {
+  clearTokens();
+  onSessionExpired?.();
+  notifyError("انتهت الجلسة. من فضلك سجّل الدخول مرة أخرى.");
+}
+
 // ─── Request interceptor — inject Authorization header ──────────
 apiClient.interceptors.request.use((config) => {
   const { accessToken } = getStoredTokens();
   if (accessToken) {
-    config.headers["Authorization"] = `Bearer ${accessToken}`;
+    config.headers.Authorization = `Bearer ${accessToken}`;
   }
   return config;
 });
@@ -74,22 +98,21 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const status = error.response?.status;
 
-    // Only attempt refresh once per request
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
 
       const { refreshToken } = getStoredTokens();
       if (!refreshToken) {
-        clearTokens();
+        handleSessionExpired();
         return Promise.reject(error);
       }
 
       if (isRefreshing) {
-        // Queue other requests while refresh is in progress
         return new Promise((resolve) => {
           refreshSubscribers.push((newToken) => {
-            originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
             resolve(apiClient(originalRequest));
           });
         });
@@ -107,14 +130,22 @@ apiClient.interceptors.response.use(
         });
 
         onRefreshed(data.accessToken);
-        originalRequest.headers["Authorization"] = `Bearer ${data.accessToken}`;
+        originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
         return apiClient(originalRequest);
       } catch {
-        clearTokens();
+        handleSessionExpired();
         return Promise.reject(error);
       } finally {
         isRefreshing = false;
       }
+    }
+
+    if (originalRequest?.skipGlobalErrorToast) {
+      return Promise.reject(error);
+    }
+
+    if (status && status >= 400 && !originalRequest?.url?.includes("/api/auth/refresh")) {
+      notifyError(extractApiErrorMessage(error));
     }
 
     return Promise.reject(error);

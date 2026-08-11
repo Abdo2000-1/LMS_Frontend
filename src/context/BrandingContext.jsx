@@ -16,7 +16,7 @@ export function BrandingProvider({ children }) {
 
   useEffect(() => {
     apiClient
-      .get("/api/branding")
+      .get("/api/branding", { skipGlobalErrorToast: true })
       .then(({ data }) => {
         setBranding({
           ...defaultBranding,

@@ -44,7 +44,8 @@ const tabs = [
 
 function formatDate(value) {
   if (!value) return "-";
-  const date = value?.toDate ? value.toDate() : new Date(value);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("ar-EG", { hour12: true });
 }
 
@@ -100,7 +101,7 @@ export default function TeacherDashboard() {
   });
 
   useEffect(() => {
-    const unsubCourses = subscribeCourses(setCourses);
+    const unsubCourses = subscribeCourses(setCourses, true);
     const unsubPayments = subscribePayments(setPayments);
     const unsubAttempts = subscribeQuizAttempts(setAttempts);
     getTenantStudents().then(setStudents).catch(() => setError("تعذر تحميل قائمة الطلاب."));

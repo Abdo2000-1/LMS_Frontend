@@ -12,6 +12,8 @@ import apiClient, {
   storeUser,
 } from "./apiClient.js";
 
+const requestConfig = { skipGlobalErrorToast: true };
+
 // ─── Constants ─────────────────────────────────────────────────
 export const STUDENT_GRADES = [
   "الصف الأول الثانوي",
@@ -109,7 +111,7 @@ export async function registerRequest({ name, email, phone, grade, governorate, 
       grade: String(grade || "").trim(),
       governorate: String(governorate || "").trim(),
       password,
-    });
+    }, requestConfig);
 
     storeTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
     const user = mapUserProfile(data);
@@ -129,7 +131,7 @@ export async function loginRequest({ email, phone, password }) {
       email: email ? String(email).trim().toLowerCase() : null,
       phone: phone ? normalizePhone(phone) : null,
       password,
-    });
+    }, requestConfig);
 
     storeTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
     const user = mapUserProfile(data);
@@ -150,7 +152,7 @@ export async function refreshProfileRequest() {
       throw new Error("No session.");
     }
 
-    const { data } = await apiClient.get("/api/auth/me");
+    const { data } = await apiClient.get("/api/auth/me", requestConfig);
     const user = mapUserProfile(data);
     storeUser(user);
     return { user, token: accessToken };
@@ -167,7 +169,7 @@ export async function updateProfileRequest({ name }) {
   try {
     const { data } = await apiClient.patch("/api/auth/me", {
       name: String(name || "").trim(),
-    });
+    }, requestConfig);
     const user = mapUserProfile(data);
     storeUser(user);
     return { user };
@@ -183,7 +185,7 @@ export async function logoutRequest() {
   try {
     const { refreshToken } = getStoredTokens();
     if (refreshToken) {
-      await apiClient.post("/api/auth/revoke", { refreshToken }).catch(() => undefined);
+      await apiClient.post("/api/auth/revoke", { refreshToken }, requestConfig).catch(() => undefined);
     }
   } finally {
     clearTokens();

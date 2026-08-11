@@ -5,6 +5,8 @@
 
 import apiClient from "../lib/apiClient.js";
 
+const requestConfig = { skipGlobalErrorToast: true };
+
 // ─── YouTube ID extractor (pure utility — no backend needed) ────
 export function extractYouTubeVideoId(value) {
   const raw = String(value || "").trim();
@@ -90,7 +92,7 @@ export async function createCourse({ teacherId, payload }) {
       units: payload.units || [],
       resources: payload.resources || [],
       quizzes: payload.quizzes || [],
-    });
+    }, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -111,7 +113,7 @@ export async function updateCourse(courseId, payload) {
       units: payload.units || [],
       resources: payload.resources || [],
       quizzes: payload.quizzes || [],
-    });
+    }, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -120,7 +122,7 @@ export async function updateCourse(courseId, payload) {
 
 export async function deleteCourse(courseId) {
   try {
-    await apiClient.delete(`/api/courses/${courseId}`);
+    await apiClient.delete(`/api/courses/${courseId}`, requestConfig);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
@@ -128,7 +130,7 @@ export async function deleteCourse(courseId) {
 
 export async function getCourseById(courseId) {
   try {
-    const { data } = await apiClient.get(`/api/courses/${courseId}`);
+    const { data } = await apiClient.get(`/api/courses/${courseId}`, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -140,6 +142,7 @@ export async function getCourseById(courseId) {
 async function loadCourses(includeUnpublished = false) {
   const { data } = await apiClient.get("/api/courses", {
     params: { includeUnpublished },
+    ...requestConfig,
   });
   return Array.isArray(data) ? data.map(mapCourse) : [];
 }
@@ -175,7 +178,7 @@ export async function addModuleToCourse(courseId, modulePayload) {
     const { data } = await apiClient.post(`/api/courses/${courseId}/modules`, {
       title: String(modulePayload.title || "").trim(),
       sortOrder: Number(modulePayload.sortOrder || modulePayload.order || 1),
-    });
+    }, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -190,7 +193,7 @@ export async function addLessonToModule(moduleId, lessonPayload) {
       videoUrl: String(lessonPayload.videoUrl || lessonPayload.youtubeVideoId || "").trim(),
       sortOrder: Number(lessonPayload.sortOrder || lessonPayload.order || 1),
       isPreview: Boolean(lessonPayload.isPreview || lessonPayload.isFree),
-    });
+    }, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -214,7 +217,7 @@ export async function addQuizToCourse(courseId, quizPayload) {
         correctIndex: Number(q.correctIndex || 0),
         points: Number(q.points || 1),
       })),
-    });
+    }, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -233,7 +236,7 @@ export async function addResourceToCourse(courseId, resourcePayload) {
       fileType: String(resourcePayload.fileType || "").trim(),
       order: Number(resourcePayload.order || 1),
       isFree: Boolean(resourcePayload.isFree),
-    });
+    }, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -244,7 +247,7 @@ export async function addResourceToCourse(courseId, resourcePayload) {
 
 export async function enrollStudentInCourse({ uid, courseId }) {
   try {
-    await apiClient.post(`/api/courses/${courseId}/enroll`);
+    await apiClient.post(`/api/courses/${courseId}/enroll`, null, requestConfig);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
@@ -257,7 +260,7 @@ export async function markLessonCompleted({ uid, courseId, unitId, totalUnits })
     await apiClient.post(`/api/courses/${courseId}/progress/lessons`, {
       unitId,
       totalUnits: Number(totalUnits || 1),
-    });
+    }, requestConfig);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
@@ -278,7 +281,7 @@ export async function submitQuizAttempt({ uid, courseId, quiz }) {
         points: Number(q.points || 1),
       })),
       answers: quiz.answers || {},
-    });
+    }, requestConfig);
     return {
       earnedPoints: data.earnedPoints,
       totalPoints: data.totalPoints,
@@ -294,7 +297,7 @@ export function subscribeQuizAttempts(callback) {
 
   const load = () =>
     apiClient
-      .get("/api/courses/quiz-attempts")
+      .get("/api/courses/quiz-attempts", requestConfig)
       .then(({ data }) => {
         if (active) callback(Array.isArray(data) ? data : []);
       })
@@ -314,7 +317,7 @@ export function subscribeQuizAttempts(callback) {
 
 export async function getTenantStudents() {
   try {
-    const { data } = await apiClient.get("/api/users/students");
+    const { data } = await apiClient.get("/api/users/students", requestConfig);
     return Array.isArray(data) ? data : [];
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -323,7 +326,7 @@ export async function getTenantStudents() {
 
 export async function blockStudent(uid) {
   try {
-    await apiClient.patch(`/api/users/${uid}/block`);
+    await apiClient.patch(`/api/users/${uid}/block`, null, requestConfig);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
@@ -331,22 +334,8 @@ export async function blockStudent(uid) {
 
 export async function unblockStudent(uid) {
   try {
-    await apiClient.patch(`/api/users/${uid}/unblock`);
+    await apiClient.patch(`/api/users/${uid}/unblock`, null, requestConfig);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
-}
-
-// ─── Email/Phone existence checks ───────────────────────────────
-
-export async function phoneExists(phone) {
-  // These checks are done server-side during registration
-  // Return false here; backend will throw 400 if duplicate
-  return false;
-}
-
-export async function emailExists(email) {
-  // These checks are done server-side during registration
-  // Return false here; backend will throw 400 if duplicate
-  return false;
 }

@@ -5,6 +5,8 @@
 
 import apiClient from "../lib/apiClient.js";
 
+const requestConfig = { skipGlobalErrorToast: true };
+
 function extractErrorMessage(error) {
   return (
     error?.response?.data?.detail ||
@@ -15,18 +17,34 @@ function extractErrorMessage(error) {
   );
 }
 
+function mapPayment(payment) {
+  return {
+    id: payment.id,
+    userId: payment.userId,
+    courseId: payment.courseId,
+    studentName: payment.studentName || payment.userId,
+    courseTitle: payment.courseTitle || payment.courseId,
+    status: payment.status,
+    amount: Number(payment.amount || 0),
+    currency: payment.currency || "EGP",
+    createdAt: payment.createdAt,
+    providerPaymentId: payment.providerPaymentId,
+  };
+}
+
 /**
  * Create a payment order for a course.
- * @param {{ user: object, course: object }} param
  */
 export async function createPaymentOrder({ user, course }) {
   if (!course?.id) throw new Error("بيانات الكورس غير مكتملة.");
   if (!user?.uid) throw new Error("لازم تسجل الدخول قبل الدفع.");
 
   try {
-    const { data } = await apiClient.post("/api/payments/orders", {
-      courseId: course.id,
-    });
+    const { data } = await apiClient.post(
+      "/api/payments/orders",
+      { courseId: course.id },
+      requestConfig
+    );
 
     return {
       paymentId: data.paymentId,
@@ -41,13 +59,16 @@ export async function createPaymentOrder({ user, course }) {
 
 /**
  * Verify (confirm) a payment order — marks it as paid and enrolls the student.
- * @param {{ paymentId: string }} param
  */
 export async function verifyPaymentOrder({ paymentId }) {
   if (!paymentId) throw new Error("طلب الدفع غير موجود.");
 
   try {
-    const { data } = await apiClient.post(`/api/payments/orders/${paymentId}/verify`);
+    const { data } = await apiClient.post(
+      `/api/payments/orders/${paymentId}/verify`,
+      null,
+      requestConfig
+    );
     return {
       paid: data.paid,
       status: data.status,
@@ -59,16 +80,17 @@ export async function verifyPaymentOrder({ paymentId }) {
 
 /**
  * Subscribe to payments list with periodic refresh (Teacher/Admin view).
- * Returns an unsubscribe function.
  */
 export function subscribePayments(callback) {
   let active = true;
 
   const load = () =>
     apiClient
-      .get("/api/payments")
+      .get("/api/payments", requestConfig)
       .then(({ data }) => {
-        if (active) callback(Array.isArray(data) ? data : []);
+        if (active) {
+          callback(Array.isArray(data) ? data.map(mapPayment) : []);
+        }
       })
       .catch(() => {
         if (active) callback([]);

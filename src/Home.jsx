@@ -23,6 +23,7 @@ import {
 import ThemeToggle from "./components/ThemeToggle.jsx";
 import Footer from "./components/Footer.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
+import { useBranding } from "./context/BrandingContext.jsx";
 import { subscribeCourses } from "./services/courseService.js";
 
 /**
@@ -98,6 +99,7 @@ const navLinks = [
 
 export default function Home() {
   const { isAuthenticated, user, getLandingRouteByRole } = useAuth();
+  const { teacherDisplayName } = useBranding();
   const [liveCourses, setLiveCourses] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -236,7 +238,7 @@ export default function Home() {
                 to="/"
                 className="flex items-center gap-1.5 text-2xl font-extrabold text-red-800 dark:text-amber-400 tracking-tight transition-colors duration-500"
               >
-                الأستاذ
+                {teacherDisplayName}
                 <Languages size={22} strokeWidth={2} />
               </Link>
             </div>
@@ -268,7 +270,7 @@ export default function Home() {
               variants={fadeUp}
               className="order-2 lg:order-1 text-center lg:text-right flex flex-col items-center lg:items-end gap-4"
             >
-              <h2 className="text-3xl sm:text-4xl font-extrabold text-amber-300">منصة الأستاذ</h2>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-amber-300">منصة {teacherDisplayName}</h2>
               <h1 className="text-3xl sm:text-5xl font-extrabold leading-tight">
                 مستقبلك في إيدك...
                 <br />
@@ -324,7 +326,7 @@ export default function Home() {
             <motion.div variants={fadeUp} className="order-1 lg:order-2 relative flex flex-col items-center lg:items-start gap-4">
               <BookMarked size={110} strokeWidth={1} className="text-white/90 drop-shadow-lg" />
               <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl p-5 max-w-sm text-center lg:text-right shadow-2xl shadow-black/30 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-500">
-                <h3 className="font-extrabold text-lg mb-2">ليه تختار منصة الأستاذ؟</h3>
+                <h3 className="font-extrabold text-lg mb-2">ليه تختار منصة {teacherDisplayName}؟</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
                   شرح بسيط.. ومضمون توصل بيه لأعلى الدرجات. نخبة من أفضل مدرسين اللغة العربية
                   بيساعدوا طلبة كتير يحققوا حلمهم في الكليات اللي نفسهم فيها. المنصة هتلاقي فيها
@@ -350,7 +352,7 @@ export default function Home() {
               <span className="text-red-800 dark:text-amber-400 transition-colors duration-500">المُقترحة</span>
             </motion.h2>
             <motion.p variants={fadeUp} className="text-slate-500 dark:text-slate-400 text-sm text-center sm:text-right max-w-xs">
-              تقدر تختار من أفضل الكورسات المقترحة من منصة الأستاذ
+              تقدر تختار من أفضل الكورسات المقترحة من منصة {teacherDisplayName}
             </motion.p>
             <motion.div variants={fadeUp}>
               <Link

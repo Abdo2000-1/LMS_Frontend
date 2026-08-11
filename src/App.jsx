@@ -2,6 +2,7 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { BrandingProvider } from "./context/BrandingContext.jsx";
+import { ToastProvider } from "./context/ToastContext.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import Home from "./Home.jsx";
 import Login from "./pages/Login.jsx";
@@ -17,9 +18,10 @@ import Profile from "./pages/Profile.jsx";
 export default function App() {
   return (
     <ThemeProvider>
-      <BrandingProvider>
-        <AuthProvider>
-          <HashRouter>
+      <ToastProvider>
+        <BrandingProvider>
+          <AuthProvider>
+            <HashRouter>
             <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
@@ -84,6 +86,7 @@ export default function App() {
           </HashRouter>
         </AuthProvider>
       </BrandingProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

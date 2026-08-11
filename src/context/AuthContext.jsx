@@ -8,6 +8,7 @@ import {
   updateProfileRequest,
   watchAuthState,
 } from "../lib/authService.js";
+import { setSessionExpiredHandler } from "../lib/apiClient.js";
 
 const AuthContext = createContext(null);
 
@@ -24,6 +25,15 @@ export function AuthProvider({ children }) {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setUser(null);
+      setToken(null);
+    });
+
+    return () => setSessionExpiredHandler(null);
   }, []);
 
   async function login(payload) {
