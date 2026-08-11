@@ -1,9 +1,25 @@
-import { account, ID } from "./appwrite.js";
-import { findOne, insertOne, updateOne } from "../services/appwriteDbService.js";
+/**
+ * authService.js
+ * All authentication logic now goes through the .NET backend REST API.
+ * JWT tokens are stored in localStorage via apiClient helpers.
+ */
 
-const USERS_COLLECTION = "users";
+import apiClient, {
+  clearTokens,
+  getStoredTokens,
+  getStoredUser,
+  storeTokens,
+  storeUser,
+} from "./apiClient.js";
 
-const GOVERNORATES = [
+// ─── Constants ─────────────────────────────────────────────────
+export const STUDENT_GRADES = [
+  "الصف الأول الثانوي",
+  "الصف الثاني الثانوي",
+  "الصف الثالث الثانوي",
+];
+
+export const GOVERNORATE_OPTIONS = [
   "القاهرة",
   "الجيزة",
   "الإسكندرية",
@@ -33,9 +49,7 @@ const GOVERNORATES = [
   "البحر الأحمر",
 ];
 
-export const STUDENT_GRADES = ["الصف الأول الثانوي", "الصف الثاني الثانوي", "الصف الثالث الثانوي"];
-export const GOVERNORATE_OPTIONS = GOVERNORATES;
-
+// ─── Helpers ────────────────────────────────────────────────────
 export function normalizePhone(value) {
   return String(value || "").replace(/\D/g, "");
 }
@@ -46,124 +60,152 @@ function normalizeRole(role) {
   return "student";
 }
 
-export function mapUserProfile(appwriteUser, profile = {}) {
-  if (!appwriteUser && !profile) return null;
+/**
+ * Map the backend AuthResponse to the frontend user shape.
+ * Backend returns: { userId, uid, email, phone, fullName, name, role, grade, governorate,
+ *                    isBlocked, enrolledCourses, progress, quizResults,
+ *                    accessToken, refreshToken, ... }
+ */
+export function mapUserProfile(data) {
+  if (!data) return null;
   return {
-    uid: profile.uid || profile.appwriteUserId || appwriteUser?.$id || "",
-    appwriteUserId: profile.appwriteUserId || appwriteUser?.$id || "",
-    name: profile.name || profile.fullName || appwriteUser?.name || "مستخدم",
-    email: profile.email || appwriteUser?.email || "",
-    phone: profile.phone || "",
-    role: normalizeRole(profile.role),
-    grade: profile.grade || "",
-    governorate: profile.governorate || "",
-    enrolledCourses: profile.enrolledCourses || [],
-    progress: profile.progress || {},
-    quizResults: profile.quizResults || {},
-    isBlocked: Boolean(profile.isBlocked),
+    uid: data.uid || data.userId || "",
+    userId: data.userId || data.uid || "",
+    name: data.name || data.fullName || "مستخدم",
+    email: data.email || "",
+    phone: data.phone || "",
+    role: normalizeRole(data.role),
+    grade: data.grade || "",
+    governorate: data.governorate || "",
+    enrolledCourses: Array.isArray(data.enrolledCourses) ? data.enrolledCourses : [],
+    progress: data.progress || {},
+    quizResults: data.quizResults || {},
+    isBlocked: Boolean(data.isBlocked),
   };
 }
 
-async function findProfileByAppwriteId(appwriteUserId) {
-  return findOne(USERS_COLLECTION, { filter: { appwriteUserId } });
+function extractErrorMessage(error) {
+  // Try to get a readable message from the backend error response
+  const detail =
+    error?.response?.data?.detail ||
+    error?.response?.data?.title ||
+    error?.response?.data?.message ||
+    error?.message ||
+    "حدث خطأ غير متوقع.";
+  return detail;
 }
 
-async function findProfileByPhone(phone) {
-  const normalizedPhone = normalizePhone(phone);
-  if (!normalizedPhone) return null;
-  return findOne(USERS_COLLECTION, { filter: { phone: normalizedPhone } });
-}
+// ─── Auth API Calls ─────────────────────────────────────────────
 
-async function ensureProfile(appwriteUser, overrides = {}) {
-  const existing = await findProfileByAppwriteId(appwriteUser.$id);
-  if (existing) return mapUserProfile(appwriteUser, existing);
-
-  const now = new Date().toISOString();
-  const document = {
-    appwriteUserId: appwriteUser.$id,
-    uid: appwriteUser.$id,
-    name: overrides.name || appwriteUser.name || "",
-    email: appwriteUser.email || "",
-    phone: normalizePhone(overrides.phone),
-    role: "student",
-    grade: overrides.grade || "",
-    governorate: overrides.governorate || "",
-    enrolledCourses: [],
-    progress: {},
-    quizResults: {},
-    isBlocked: false,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const created = await insertOne(USERS_COLLECTION, document);
-  return mapUserProfile(appwriteUser, created);
-}
-
-export async function refreshProfileRequest() {
-  const appwriteUser = await account.get();
-  const profile = await ensureProfile(appwriteUser);
-  return { user: profile, token: appwriteUser.$id };
-}
-
+/**
+ * Register a new student account.
+ */
 export async function registerRequest({ name, email, phone, grade, governorate, password }) {
-  const cleanEmail = String(email || "").trim().toLowerCase();
-  const cleanName = String(name || "").trim();
-  await account.create(ID.unique(), cleanEmail, password, cleanName);
-  await account.createEmailPasswordSession(cleanEmail, password);
-  const appwriteUser = await account.get();
-  const profile = await ensureProfile(appwriteUser, {
-    name: cleanName,
-    phone,
-    grade,
-    governorate,
-  });
-  return { user: profile, token: appwriteUser.$id };
+  try {
+    const { data } = await apiClient.post("/api/auth/register", {
+      fullName: String(name || "").trim(),
+      email: String(email || "").trim().toLowerCase(),
+      phone: normalizePhone(phone),
+      grade: String(grade || "").trim(),
+      governorate: String(governorate || "").trim(),
+      password,
+    });
+
+    storeTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+    const user = mapUserProfile(data);
+    storeUser(user);
+    return { user, token: data.accessToken };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
 }
 
+/**
+ * Login with email/phone + password.
+ */
 export async function loginRequest({ email, phone, password }) {
-  let loginEmail = String(email || "").trim().toLowerCase();
-  if (!loginEmail && phone) {
-    const profile = await findProfileByPhone(phone);
-    loginEmail = String(profile?.email || "").trim().toLowerCase();
-  }
+  try {
+    const { data } = await apiClient.post("/api/auth/login", {
+      email: email ? String(email).trim().toLowerCase() : null,
+      phone: phone ? normalizePhone(phone) : null,
+      password,
+    });
 
-  if (!loginEmail) {
-    throw new Error("لم يتم العثور على حساب مرتبط بهذا الرقم.");
+    storeTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+    const user = mapUserProfile(data);
+    storeUser(user);
+    return { user, token: data.accessToken };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
   }
-
-  await account.createEmailPasswordSession(loginEmail, password);
-  const appwriteUser = await account.get();
-  const profile = await ensureProfile(appwriteUser);
-  return { user: profile, token: appwriteUser.$id };
 }
 
+/**
+ * Fetch current user profile from backend (uses stored access token).
+ */
+export async function refreshProfileRequest() {
+  try {
+    const { accessToken, refreshToken } = getStoredTokens();
+    if (!accessToken && !refreshToken) {
+      throw new Error("No session.");
+    }
+
+    const { data } = await apiClient.get("/api/auth/me");
+    const user = mapUserProfile(data);
+    storeUser(user);
+    return { user, token: accessToken };
+  } catch (error) {
+    clearTokens();
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+/**
+ * Update display name.
+ */
 export async function updateProfileRequest({ name }) {
-  const appwriteUser = await account.get();
-  const cleanName = String(name || "").trim();
-  if (cleanName) {
-    await account.updateName(cleanName);
+  try {
+    const { data } = await apiClient.patch("/api/auth/me", {
+      name: String(name || "").trim(),
+    });
+    const user = mapUserProfile(data);
+    storeUser(user);
+    return { user };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
   }
-
-  await updateOne(USERS_COLLECTION, {
-    filter: { appwriteUserId: appwriteUser.$id },
-    update: {
-      $set: {
-        name: cleanName || appwriteUser.name,
-        updatedAt: new Date().toISOString(),
-      },
-    },
-  });
-
-  return refreshProfileRequest();
 }
 
+/**
+ * Logout — revoke the refresh token on the backend, clear local storage.
+ */
 export async function logoutRequest() {
-  await account.deleteSession("current").catch(() => undefined);
+  try {
+    const { refreshToken } = getStoredTokens();
+    if (refreshToken) {
+      await apiClient.post("/api/auth/revoke", { refreshToken }).catch(() => undefined);
+    }
+  } finally {
+    clearTokens();
+  }
 }
 
+/**
+ * Called on app startup — tries to restore session from stored tokens.
+ * Calls the callback immediately with (user, token) or (null, null).
+ */
 export function watchAuthState(callback) {
   let active = true;
+
+  const { accessToken } = getStoredTokens();
+  if (!accessToken) {
+    // No stored token — try cached user first, then give up
+    const cachedUser = getStoredUser();
+    callback(cachedUser, null);
+    return () => { active = false; };
+  }
+
+  // Validate the stored token by hitting /api/auth/me
   refreshProfileRequest()
     .then(({ user, token }) => {
       if (active) callback(user, token);
@@ -172,11 +214,12 @@ export function watchAuthState(callback) {
       if (active) callback(null, null);
     });
 
-  return () => {
-    active = false;
-  };
+  return () => { active = false; };
 }
 
+/**
+ * Route helper based on user role.
+ */
 export function getLandingRouteByRole(role) {
   if (role === "teacher") return "/teacher/dashboard";
   if (role === "developer") return "/dev/master";

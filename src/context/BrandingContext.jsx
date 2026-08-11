@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { findOne } from "../services/appwriteDbService.js";
+import apiClient from "../lib/apiClient.js";
 
 const BrandingContext = createContext(null);
 
@@ -15,8 +15,18 @@ export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState(defaultBranding);
 
   useEffect(() => {
-    findOne("branding", { filter: {} })
-      .then((payload) => setBranding({ ...defaultBranding, ...(payload || {}) }))
+    apiClient
+      .get("/api/branding")
+      .then(({ data }) => {
+        setBranding({
+          ...defaultBranding,
+          teacherDisplayName: data.teacherDisplayName || defaultBranding.teacherDisplayName,
+          logoUrl: data.logoUrl || "",
+          primaryColor: data.primaryColor || defaultBranding.primaryColor,
+          supportEmail: data.supportEmail || "",
+          footerText: data.footerText || "",
+        });
+      })
       .catch(() => setBranding(defaultBranding));
   }, []);
 

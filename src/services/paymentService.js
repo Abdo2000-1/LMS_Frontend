@@ -1,74 +1,81 @@
-import { find, insertOne, objectIdFilter, updateOne } from "./appwriteDbService.js";
-import { enrollStudentInCourse } from "./courseService.js";
+/**
+ * paymentService.js
+ * All payment operations go through the .NET backend.
+ */
 
-const PAYMENTS_COLLECTION = "payments";
+import apiClient from "../lib/apiClient.js";
 
-export async function createPaymentOrder({ user, course }) {
-  if (!course?.id) throw new Error("بيانات الدفع غير مكتملة.");
-  if (!user?.uid) throw new Error("لازم تسجل الدخول قبل الدفع.");
-
-  const finalAmount = Math.max(0, Number(course.price || 0) * (1 - Number(course.discountPercent || 0) / 100));
-  const now = new Date().toISOString();
-  const payment = await insertOne(PAYMENTS_COLLECTION, {
-    uid: user.uid,
-    studentName: user.name || "",
-    courseId: course.id,
-    courseTitle: course.title || "",
-    amount: Math.round(finalAmount),
-    currency: "EGP",
-    status: "pending",
-    provider: "manual",
-    referenceCode: `pay_${Date.now()}`,
-    paid: false,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  return {
-    paymentId: payment.id,
-    referenceCode: payment.referenceCode,
-    paymentUrl: "#",
-    paid: false,
-  };
+function extractErrorMessage(error) {
+  return (
+    error?.response?.data?.detail ||
+    error?.response?.data?.title ||
+    error?.response?.data?.message ||
+    error?.message ||
+    "حدث خطأ في عملية الدفع."
+  );
 }
 
+/**
+ * Create a payment order for a course.
+ * @param {{ user: object, course: object }} param
+ */
+export async function createPaymentOrder({ user, course }) {
+  if (!course?.id) throw new Error("بيانات الكورس غير مكتملة.");
+  if (!user?.uid) throw new Error("لازم تسجل الدخول قبل الدفع.");
+
+  try {
+    const { data } = await apiClient.post("/api/payments/orders", {
+      courseId: course.id,
+    });
+
+    return {
+      paymentId: data.paymentId,
+      referenceCode: data.referenceCode,
+      paymentUrl: data.paymentUrl || "#",
+      paid: data.paid || false,
+    };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+/**
+ * Verify (confirm) a payment order — marks it as paid and enrolls the student.
+ * @param {{ paymentId: string }} param
+ */
 export async function verifyPaymentOrder({ paymentId }) {
   if (!paymentId) throw new Error("طلب الدفع غير موجود.");
 
-  const now = new Date().toISOString();
-  await updateOne(PAYMENTS_COLLECTION, {
-    filter: objectIdFilter(paymentId),
-    update: {
-      $set: {
-        status: "paid",
-        paid: true,
-        paidAt: now,
-        updatedAt: now,
-      },
-    },
-  });
-
-  const [payment] = await find(PAYMENTS_COLLECTION, { filter: objectIdFilter(paymentId), limit: 1 });
-  if (payment?.uid && payment?.courseId) {
-    await enrollStudentInCourse({ uid: payment.uid, courseId: payment.courseId });
+  try {
+    const { data } = await apiClient.post(`/api/payments/orders/${paymentId}/verify`);
+    return {
+      paid: data.paid,
+      status: data.status,
+    };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
   }
-
-  return { paid: true, status: "paid" };
 }
 
+/**
+ * Subscribe to payments list with periodic refresh (Teacher/Admin view).
+ * Returns an unsubscribe function.
+ */
 export function subscribePayments(callback) {
   let active = true;
+
   const load = () =>
-    find(PAYMENTS_COLLECTION, { sort: { createdAt: -1 } })
-      .then((items) => {
-        if (active) callback(items);
+    apiClient
+      .get("/api/payments")
+      .then(({ data }) => {
+        if (active) callback(Array.isArray(data) ? data : []);
       })
       .catch(() => {
         if (active) callback([]);
       });
 
   load();
-  const timer = setInterval(load, 8000);
+  const timer = setInterval(load, 10000);
   return () => {
     active = false;
     clearInterval(timer);

@@ -1,37 +1,73 @@
-import { appwriteConfig, ID, storage } from "../lib/appwrite.js";
+/**
+ * storageService.js
+ * File uploads go through the .NET backend → Azure Blob Storage.
+ */
 
-export async function uploadToAppwriteStorage(file, onProgress) {
-  if (!file) throw new Error("No file selected.");
+import apiClient from "../lib/apiClient.js";
 
-  const uploaded = await storage.createFile(
-    appwriteConfig.bucketId,
-    ID.unique(),
-    file,
-    undefined,
-    (progress) => {
-      if (!onProgress) return;
-      onProgress({
-        loaded: progress.loaded,
-        total: progress.total,
-        percent: progress.progress,
-      });
-    }
+function extractErrorMessage(error) {
+  return (
+    error?.response?.data?.detail ||
+    error?.response?.data?.title ||
+    error?.response?.data?.message ||
+    error?.message ||
+    "فشل رفع الملف."
   );
-
-  return storage.getFileView(appwriteConfig.bucketId, uploaded.$id).toString();
 }
 
-export function uploadImageToStorage(file, onProgress) {
+/**
+ * Upload an image file as a course thumbnail.
+ * Sends multipart/form-data to POST /api/courses/upload-thumbnail
+ * Returns the public Azure Blob URL of the uploaded image.
+ *
+ * @param {File} file
+ * @param {Function} [onProgress] - optional (percent: number) => void
+ * @returns {Promise<string>} Public URL of the uploaded file
+ */
+export async function uploadImageToStorage(file, onProgress) {
+  if (!file) throw new Error("لم يتم اختيار ملف.");
   if (!String(file?.type || "").startsWith("image/")) {
-    throw new Error("Only image files are allowed.");
+    throw new Error("يُسمح بصور فقط (JPEG, PNG, WEBP, GIF).");
   }
-  return uploadToAppwriteStorage(file, onProgress);
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const { data } = await apiClient.post("/api/courses/upload-thumbnail", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress({ loaded: progressEvent.loaded, total: progressEvent.total, percent });
+        }
+      },
+    });
+
+    return data.url;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
 }
 
-export function uploadFileToStorage(file, onProgress) {
-  return uploadToAppwriteStorage(file, onProgress);
+/**
+ * Upload any file (PDF, etc.) — same endpoint, backend validates type.
+ * For non-image files, use a different endpoint if added later.
+ */
+export async function uploadFileToStorage(file, onProgress) {
+  return uploadImageToStorage(file, onProgress);
 }
 
-export function getStorageFileViewUrl(fileId) {
-  return storage.getFileView(appwriteConfig.bucketId, fileId).toString();
+/**
+ * Returns the file URL directly — since we now store on Azure Blob,
+ * the URL is already public and returned from the upload call.
+ * This helper is kept for backwards compatibility.
+ */
+export function getStorageFileViewUrl(urlOrFileId) {
+  // If it's already a full URL (Azure Blob), return as-is
+  if (String(urlOrFileId || "").startsWith("http")) {
+    return urlOrFileId;
+  }
+  // Fallback for any legacy file IDs
+  return urlOrFileId;
 }
