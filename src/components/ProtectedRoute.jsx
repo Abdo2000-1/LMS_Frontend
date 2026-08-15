@@ -8,7 +8,7 @@ export default function ProtectedRoute({ children, allowRoles = [] }) {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white dark:bg-slate-950 transition-colors duration-500">
-        <div className="w-10 h-10 border-4 border-red-800 dark:border-amber-400 border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-4 border-chem-light dark:border-chem-deep border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }

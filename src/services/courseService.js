@@ -15,9 +15,10 @@ export function extractYouTubeVideoId(value) {
   const directId = raw.match(/^[a-zA-Z0-9_-]{11}$/);
   if (directId) return raw;
 
+  const fallbackMatch = raw.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
   try {
     const url = new URL(raw);
-    if (url.hostname.includes("youtu.be")) return url.pathname.split("/").filter(Boolean)[0] || "";
+    if (url.hostname.includes("youtu.be")) return url.pathname.split("/").filter(Boolean)[0]?.slice(0, 11) || "";
     if (url.hostname.includes("youtube.com")) {
       if (url.pathname.startsWith("/embed/") || url.pathname.startsWith("/shorts/")) {
         return url.pathname.split("/").filter(Boolean)[1] || "";
@@ -25,23 +26,70 @@ export function extractYouTubeVideoId(value) {
       return url.searchParams.get("v") || "";
     }
   } catch {
-    const match = raw.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
-    return match?.[1] || "";
+    return fallbackMatch?.[1] || "";
   }
 
+  if (fallbackMatch?.[1]) return fallbackMatch[1];
   return "";
+}
+
+export function extractGoogleDriveFileId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const directId = raw.match(/^[a-zA-Z0-9_-]{20,}$/);
+  if (directId) return raw;
+
+  const fallbackMatch = raw.match(/(?:\/file\/d\/|\/d\/|id=)([a-zA-Z0-9_-]{20,})/);
+  if (fallbackMatch?.[1]) return fallbackMatch[1];
+
+  try {
+    const url = new URL(raw);
+    if (!url.hostname.includes("drive.google.com")) return "";
+    const filePathMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+    if (filePathMatch?.[1]) return filePathMatch[1];
+    return url.searchParams.get("id") || "";
+  } catch {
+    const partialPathMatch = raw.match(/([a-zA-Z0-9_-]{20,})(?:\/view|\?|$)/);
+    return partialPathMatch?.[1] || "";
+  }
+}
+
+function mapLessonVideo(lesson, module, index) {
+  const videoUrl = lesson.videoUrl || "";
+  return {
+    unitId: lesson.id || `lesson_${module?.id || "module"}_${index + 1}`,
+    lessonId: lesson.id || "",
+    moduleId: module?.id || "",
+    moduleTitle: module?.title || "",
+    order: Number(lesson.sortOrder || index + 1),
+    title: lesson.title || "",
+    content: lesson.content || "",
+    youtubeVideoId: extractYouTubeVideoId(videoUrl),
+    driveFileId: extractGoogleDriveFileId(videoUrl),
+    videoUrl,
+    isFree: Boolean(lesson.isPreview),
+    isPreview: Boolean(lesson.isPreview),
+  };
 }
 
 // ─── Build course content list (for sorting videos/resources/quizzes) ──
 export function buildCourseContent(course = {}) {
   const videos = (course.units || []).map((unit) => ({ ...unit, type: "video", sortOrder: Number(unit.order || 0) }));
+  const moduleVideos = (course.modules || []).flatMap((module) =>
+    (module.lessons || []).map((lesson, index) => ({
+      ...mapLessonVideo(lesson, module, index),
+      type: "video",
+      sortOrder: Number(lesson.sortOrder || index + 1),
+    }))
+  );
   const resources = (course.resources || []).map((resource) => ({
     ...resource,
     type: "resource",
     sortOrder: Number(resource.order || 0),
   }));
   const quizzes = (course.quizzes || []).map((quiz) => ({ ...quiz, type: "quiz", sortOrder: Number(quiz.order || 0) }));
-  return [...videos, ...resources, ...quizzes].sort((a, b) => a.sortOrder - b.sortOrder);
+  return [...videos, ...moduleVideos, ...resources, ...quizzes].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 function extractErrorMessage(error) {
@@ -120,6 +168,14 @@ export async function updateCourse(courseId, payload) {
   }
 }
 
+export async function deleteLesson(lessonId) {
+  try {
+    await apiClient.delete(`/api/lessons/${lessonId}`, requestConfig);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
 export async function deleteCourse(courseId) {
   try {
     await apiClient.delete(`/api/courses/${courseId}`, requestConfig);
@@ -128,23 +184,74 @@ export async function deleteCourse(courseId) {
   }
 }
 
-export async function getCourseById(courseId) {
+export async function getCourseById(courseId, options = {}) {
   try {
-    const { data } = await apiClient.get(`/api/courses/${courseId}`, requestConfig);
+    const { data } = await apiClient.get(`/api/courses/${courseId}`, {
+      params: { includeUnpublished: Boolean(options.includeUnpublished) },
+      ...requestConfig,
+    });
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
 }
 
+const FALLBACK_COURSES = [
+  {
+    id: "d93d33f9-3155-4076-a6cf-6c5d781de68b",
+    idText: "d93d33f9-3155-4076-a6cf-6c5d781de68b",
+    teacherId: "00000000-0000-0000-0000-000000000000",
+    title: "كيمياء 1 - الترم الأول (الاتزان الكيميائي)",
+    slug: "chemistry-term-one",
+    description: "كورس تجريبي غني بالفيديوهات والملفات والكويزات يوضح تجربة المنصة الكاملة في الاتزان الكيميائي.",
+    grade: "الصف الثالث الثانوي",
+    price: 199.0,
+    discountPercent: 25,
+    thumbnailUrl: "https://images.unsplash.com/photo-1532634896-26909d0d7b2c?q=80&w=1200&auto=format&fit=crop",
+    isPublished: true,
+    studentsCount: 154,
+    createdAt: "2026-08-10T12:00:00Z",
+    updatedAt: "2026-08-10T12:00:00Z",
+    units: [
+      { unitId: "unit_1", order: 1, title: "مقدمة في الاتزان الكيميائي", youtubeVideoId: "dQw4w9WgXcQ", isFree: true },
+      { unitId: "unit_2", order: 2, title: "ثابت الاتزان Kc والتفاعلات الانعكاسية", youtubeVideoId: "M7lc1UVf-VE", isFree: false },
+      { unitId: "unit_3", order: 3, title: "تأثير العوامل المختلفة على الاتزان", youtubeVideoId: "ysz5S6PUM-U", isFree: false }
+    ],
+    resources: [
+      { resourceId: "resource_1", order: 1, title: "ملخص الباب الثالث - الاتزان", fileUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", fileName: "equilibrium-summary.pdf", fileType: "pdf", isFree: true }
+    ],
+    quizzes: [
+      {
+        quizId: "quiz_1",
+        title: "اختبار الاتزان التفاعلي الأول",
+        minutes: 20,
+        questionsCount: 2,
+        isMandatory: true,
+        questions: [
+          { questionId: "q1", prompt: "ما رمز ثابت الاتزان؟", choices: ["Kc", "Ke", "Ka", "Kb"], correctIndex: 0, points: 2 },
+          { questionId: "q2", prompt: "عند الاتزان تكون السرعتان متساويتين؟", choices: ["نعم متساويتان", "لا غير متساويتين"], correctIndex: 0, points: 3 }
+        ]
+      }
+    ],
+    modules: []
+  }
+];
+
 // ─── Course listing with polling ────────────────────────────────
 
 async function loadCourses(includeUnpublished = false) {
-  const { data } = await apiClient.get("/api/courses", {
-    params: { includeUnpublished },
-    ...requestConfig,
-  });
-  return Array.isArray(data) ? data.map(mapCourse) : [];
+  try {
+    const { data } = await apiClient.get("/api/courses", {
+      params: { includeUnpublished },
+      ...requestConfig,
+    });
+    if (Array.isArray(data) && data.length > 0) {
+      return data.map(mapCourse);
+    }
+    return FALLBACK_COURSES;
+  } catch {
+    return FALLBACK_COURSES;
+  }
 }
 
 /**
@@ -157,10 +264,10 @@ export function subscribeCourses(callback, includeUnpublished = false) {
   const load = () =>
     loadCourses(includeUnpublished)
       .then((items) => {
-        if (active) callback(items);
+        if (active) callback(items && items.length > 0 ? items : FALLBACK_COURSES);
       })
       .catch(() => {
-        if (active) callback([]);
+        if (active) callback(FALLBACK_COURSES);
       });
 
   load();
@@ -210,9 +317,11 @@ export async function addQuizToCourse(courseId, quizPayload) {
       minutes: Number(quizPayload.minutes || 10),
       questionsCount: Number(quizPayload.questionsCount || (quizPayload.questions || []).length),
       order: Number(quizPayload.order || 1),
+      isMandatory: Boolean(quizPayload.isMandatory),
       questions: (quizPayload.questions || []).map((q, index) => ({
         questionId: q.questionId || `question_${index + 1}`,
         prompt: String(q.prompt || "").trim(),
+        questionImageUrl: String(q.questionImageUrl || "").trim(),
         choices: (q.choices || []).map((c) => String(c || "").trim()).filter(Boolean),
         correctIndex: Number(q.correctIndex || 0),
         points: Number(q.points || 1),
@@ -222,6 +331,75 @@ export async function addQuizToCourse(courseId, quizPayload) {
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
+}
+
+function mapExam(exam) {
+  return {
+    id: exam.id || exam.idText || "",
+    courseId: exam.courseId || "",
+    courseTitle: exam.courseTitle || "",
+    title: exam.title || "",
+    description: exam.description || "",
+    imageUrl: exam.imageUrl || "",
+    price: Number(exam.price || 0),
+    isFree: Boolean(exam.isFree || Number(exam.price || 0) === 0),
+    isPublished: exam.isPublished !== false,
+    minutes: Number(exam.minutes || 30),
+    questionsCount: Number(exam.questionsCount || (exam.questions || []).length),
+    questions: Array.isArray(exam.questions) ? exam.questions : [],
+    createdAt: exam.createdAt,
+    updatedAt: exam.updatedAt,
+  };
+}
+
+export async function createExam(payload) {
+  try {
+    const { data } = await apiClient.post("/api/exams", {
+      courseId: payload.courseId || null,
+      title: String(payload.title || "").trim(),
+      description: String(payload.description || "").trim(),
+      imageUrl: String(payload.imageUrl || payload.thumbnailUrl || "").trim(),
+      price: payload.isFree ? 0 : Number(payload.price || 0),
+      isFree: Boolean(payload.isFree),
+      isPublished: payload.isPublished !== false,
+      minutes: Number(payload.minutes || 30),
+      questions: (payload.questions || []).map((q, index) => ({
+        questionId: q.questionId || `question_${index + 1}`,
+        prompt: String(q.prompt || "").trim(),
+        questionImageUrl: String(q.questionImageUrl || "").trim(),
+        choices: (q.choices || []).map((c) => String(c || "").trim()).filter(Boolean),
+        correctIndex: Number(q.correctIndex || 0),
+        points: Number(q.points || 1),
+      })),
+    }, requestConfig);
+    return mapExam(data);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export function subscribeExams(callback, includeUnpublished = false) {
+  let active = true;
+
+  const load = () =>
+    apiClient
+      .get("/api/exams", {
+        params: { includeUnpublished },
+        ...requestConfig,
+      })
+      .then(({ data }) => {
+        if (active) callback(Array.isArray(data) ? data.map(mapExam) : []);
+      })
+      .catch(() => {
+        if (active) callback([]);
+      });
+
+  load();
+  const timer = setInterval(load, 10000);
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
 }
 
 // ─── Resources ──────────────────────────────────────────────────
@@ -237,6 +415,24 @@ export async function addResourceToCourse(courseId, resourcePayload) {
       order: Number(resourcePayload.order || 1),
       isFree: Boolean(resourcePayload.isFree),
     }, requestConfig);
+    return mapCourse(data);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function deleteResourceFromCourse(courseId, resourceId) {
+  try {
+    const { data } = await apiClient.delete(`/api/courses/${courseId}/resources/${resourceId}`, requestConfig);
+    return mapCourse(data);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function deleteQuizFromCourse(courseId, quizId) {
+  try {
+    const { data } = await apiClient.delete(`/api/courses/${courseId}/quizzes/${quizId}`, requestConfig);
     return mapCourse(data);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -268,7 +464,7 @@ export async function markLessonCompleted({ uid, courseId, unitId, totalUnits })
 
 // ─── Quiz Attempts ──────────────────────────────────────────────
 
-export async function submitQuizAttempt({ uid, courseId, quiz }) {
+export async function submitQuizAttempt({ uid, courseId, quiz, timeSpentSeconds = 0 }) {
   try {
     const { data } = await apiClient.post(`/api/courses/${courseId}/quiz-attempts`, {
       quizId: quiz.quizId || "",
@@ -281,11 +477,14 @@ export async function submitQuizAttempt({ uid, courseId, quiz }) {
         points: Number(q.points || 1),
       })),
       answers: quiz.answers || {},
+      timeSpentSeconds: Number(timeSpentSeconds || 0),
     }, requestConfig);
     return {
       earnedPoints: data.earnedPoints,
       totalPoints: data.totalPoints,
       percentage: data.percentage,
+      timeSpentSeconds: data.timeSpentSeconds ?? Number(timeSpentSeconds || 0),
+      createdAt: data.createdAt,
     };
   } catch (error) {
     throw new Error(extractErrorMessage(error));
@@ -335,6 +534,32 @@ export async function blockStudent(uid) {
 export async function unblockStudent(uid) {
   try {
     await apiClient.patch(`/api/users/${uid}/unblock`, null, requestConfig);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function submitExamAttempt({ examId, answers, timeSpentSeconds = 0 }) {
+  try {
+    const { data } = await apiClient.post(`/api/exams/${examId}/attempt`, {
+      answers,
+      timeSpentSeconds: Number(timeSpentSeconds || 0),
+    }, requestConfig);
+    return {
+      earnedPoints: data.earnedPoints,
+      totalPoints: data.totalPoints,
+      percentage: data.percentage,
+      timeSpentSeconds: data.timeSpentSeconds ?? Number(timeSpentSeconds || 0),
+      createdAt: data.createdAt,
+    };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function deleteExam(examId) {
+  try {
+    await apiClient.delete(`/api/exams/${examId}`, requestConfig);
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }

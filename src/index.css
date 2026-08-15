@@ -9,14 +9,14 @@ html {
 
 body {
   font-family: "Cairo", sans-serif;
-  background: theme("colors.slate.50");
+  background: #f4f9ff;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
 ::selection {
-  background: theme("colors.amber.300");
+  background: #8be9ff;
   color: theme("colors.slate.950");
 }
 
@@ -38,14 +38,46 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: theme("colors.amber.400");
+  background-color: #00A8E8;
+}
+
+.no-select,
+.no-select * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.chemistry-orbit {
+  position: relative;
+}
+
+.chemistry-orbit::before,
+.chemistry-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border: 1px solid rgba(0, 168, 232, 0.35);
+  border-radius: 999px;
+  animation: chemistry-spin 12s linear infinite;
+}
+
+.chemistry-orbit::after {
+  transform: rotate(60deg);
+  border-color: rgba(255, 107, 53, 0.35);
+  animation-duration: 16s;
+}
+
+@keyframes chemistry-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* تحسين شكل الـ focus عشان يبقى واضح مع لوحة المفاتيح على كل الأزرار والروابط */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid theme("colors.amber.400");
+  outline: 2px solid #00A8E8;
   outline-offset: 2px;
   border-radius: 4px;
 }

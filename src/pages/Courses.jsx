@@ -17,6 +17,13 @@ function getFinalPrice(course) {
   return Math.max(0, Math.round(base * (1 - discount / 100)));
 }
 
+function getCourseCta(course, finalPrice, isTeacher, enrolled) {
+  if (isTeacher) return { label: "دخول الكورس", to: `/courses/${course.id}` };
+  if (finalPrice === 0) return { label: "دخول الكورس", to: `/courses/${course.id}` };
+  if (enrolled) return { label: "الدخول للكورس", to: `/courses/${course.id}` };
+  return { label: "الدخول للكورس", to: `/courses/${course.id}/payment` };
+}
+
 export default function Courses() {
   const { user } = useAuth();
   const [courses, setCourses] = useState([]);
@@ -25,6 +32,7 @@ export default function Courses() {
   useEffect(() => subscribeCourses(setCourses), []);
 
   const enrolledSet = useMemo(() => new Set(user?.enrolledCourses || []), [user?.enrolledCourses]);
+  const isTeacher = user?.role === "teacher" || user?.role === "developer";
   const filteredCourses = useMemo(() => {
     const normalized = searchTerm.trim().toLowerCase();
     if (!normalized) return courses;
@@ -44,7 +52,7 @@ export default function Courses() {
         <div className="mb-10 text-center sm:text-right">
           <h1 className="text-2xl sm:text-3xl font-extrabold">الكورسات</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            الكورسات مرتبة حسب خطة LMS: اشترك ثم ابدأ الدروس والكويزات بالترتيب.
+            الكورسات مرتبة حسب خطة LMS: ادخل الكورس ثم ابدأ الدروس والكويزات بالترتيب.
           </p>
         </div>
 
@@ -115,19 +123,19 @@ export default function Courses() {
                       className="text-center border border-red-800 dark:border-amber-400 text-red-800 dark:text-amber-400 rounded-lg py-2 text-sm font-bold hover:bg-red-800 hover:text-white dark:hover:bg-amber-400 dark:hover:text-slate-950 transition-all duration-300 active:scale-[0.97] flex items-center justify-center gap-1"
                     >
                       <PlayCircle size={16} />
-                      {enrolled ? "الدخول للكورس" : "معاينة المحتوى"}
+                      {enrolled || finalPrice === 0 || isTeacher ? "الدخول للكورس" : "معاينة المحتوى"}
                     </Link>
 
-                    {enrolled ? (
+                    {enrolled || isTeacher || finalPrice === 0 ? (
                       <span className="text-center bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-lg py-2 text-sm font-bold">
-                        مشترك بالفعل
+                        {finalPrice === 0 ? "كورس مجاني" : "مشترك بالفعل"}
                       </span>
                     ) : (
                       <Link
-                        to={`/courses/${course.id}/payment`}
+                        to={finalPrice === 0 ? `/courses/${course.id}` : `/courses/${course.id}/payment`}
                         className="text-center bg-red-700 text-white rounded-lg py-2 text-sm font-bold hover:bg-red-800 hover:shadow-md hover:shadow-red-700/30 transition-all duration-300 active:scale-[0.97]"
                       >
-                        الاشتراك في الكورس
+                        {finalPrice === 0 ? "كورس مجاني" : "الدخول للكورس"}
                       </Link>
                     )}
                   </div>

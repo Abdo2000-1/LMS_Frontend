@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { BookOpen, ClipboardCheck, Award, ArrowLeft, Flame, PlayCircle } from "lucide-react";
+import { Award, BookOpen, ClipboardCheck, Flame, PlayCircle, TrendingUp, TimerReset, Sparkles } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { subscribeCourses } from "../services/courseService.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("ar-EG").format(Number(value || 0));
+}
+
+function formatDuration(seconds) {
+  const safeSeconds = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remaining = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -17,112 +28,229 @@ export default function Dashboard() {
     return courses.filter((course) => enrolledIds.has(course.id));
   }, [courses, user?.enrolledCourses]);
 
-  const totalProgress = useMemo(() => {
-    if (!enrolledCourses.length) return 0;
-    const total = enrolledCourses.reduce((sum, course) => {
-      const courseProgress = user?.progress?.[course.id]?.percentage || 0;
-      return sum + courseProgress;
-    }, 0);
-    return Math.round(total / enrolledCourses.length);
+  const orderedProgressEntries = useMemo(() => {
+    return enrolledCourses
+      .map((course) => ({
+        course,
+        progress: Number(user?.progress?.[course.id]?.percentage || 0),
+        watchedLessons: user?.progress?.[course.id]?.watchedLessons || [],
+      }))
+      .sort((a, b) => b.progress - a.progress);
   }, [enrolledCourses, user?.progress]);
+
+  const totalProgress = useMemo(() => {
+    if (!orderedProgressEntries.length) return 0;
+    const total = orderedProgressEntries.reduce((sum, item) => sum + item.progress, 0);
+    return Math.round(total / orderedProgressEntries.length);
+  }, [orderedProgressEntries]);
 
   const completedLessons = useMemo(() => {
     return Object.values(user?.progress || {}).reduce((sum, item) => sum + (item?.watchedLessons?.length || 0), 0);
   }, [user?.progress]);
 
+  const recentQuizResults = useMemo(() => {
+    const entries = Object.entries(user?.quizResults || {}).flatMap(([courseId, quizzes]) =>
+      Object.entries(quizzes || {}).map(([quizId, result]) => ({
+        courseId,
+        quizId,
+        result,
+      }))
+    );
+
+    return entries
+      .filter((item) => item.result)
+      .sort((a, b) => new Date(b.result.updatedAt || 0) - new Date(a.result.updatedAt || 0));
+  }, [user?.quizResults]);
+
   const nextCourse = useMemo(() => {
-    return enrolledCourses.find((course) => (user?.progress?.[course.id]?.percentage || 0) < 100) || enrolledCourses[0];
-  }, [enrolledCourses, user?.progress]);
+    return orderedProgressEntries.find((item) => item.progress < 100)?.course || orderedProgressEntries[0]?.course || null;
+  }, [orderedProgressEntries]);
 
   const stats = [
-    { label: "الكورسات المشتركة", value: String(enrolledCourses.length), icon: BookOpen },
-    { label: "الدروس المكتملة", value: String(completedLessons), icon: ClipboardCheck },
-    { label: "متوسط التقدم", value: `${totalProgress}%`, icon: Award },
-    { label: "مستوى الالتزام", value: totalProgress > 70 ? "ممتاز" : totalProgress > 40 ? "جيد" : "ابدأ الآن", icon: Flame },
+    { label: "الكورسات المسجلة", value: formatNumber(enrolledCourses.length), icon: BookOpen, color: "from-[#0077B6] to-[#00A8E8]" },
+    { label: "الدروس المكتملة", value: formatNumber(completedLessons), icon: ClipboardCheck, color: "from-[#FF6B35] to-[#ff8a5f]" },
+    { label: "متوسط التقدم", value: `${totalProgress}%`, icon: TrendingUp, color: "from-[#12B981] to-[#38D9C8]" },
+    { label: "مستوى الالتزام", value: totalProgress > 70 ? "ممتاز" : totalProgress > 40 ? "جيد" : "ابدأ الآن", icon: Flame, color: "from-[#F59E0B] to-[#F97316]" },
   ];
 
   return (
     <DashboardLayout active="/dashboard">
-      <div className="space-y-10">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="text-center sm:text-right"
-        >
-          <h1 className="text-2xl sm:text-3xl font-extrabold">أهلاً بيك، {user?.name?.split(" ")[0] || "طالب"} 👋</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            {user?.grade ? `متابعة خطة ${user.grade}` : "ابدأ أول كورس وخليك منتظم يوميًا."}
-          </p>
-        </motion.div>
+      <div className="space-y-8">
+        <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950">
+          <div className="grid gap-0 lg:grid-cols-[1.3fr_0.7fr]">
+            <div className="relative bg-gradient-to-l from-[#0077B6] via-[#00A8E8] to-[#38D9C8] p-6 sm:p-8 text-white">
+              <div className="absolute -left-10 top-10 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
+              <div className="absolute bottom-0 right-0 h-32 w-32 rounded-full bg-[#FF6B35]/15 blur-3xl" />
+              <div className="relative z-10 space-y-4 text-right">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-1.5 text-sm font-bold backdrop-blur">
+                  <Sparkles size={15} />
+                  لوحة الطالب
+                </div>
+                <h1 className="text-3xl sm:text-4xl font-extrabold leading-tight">
+                  أهلاً بيك، {user?.name?.split(" ")[0] || "طالب"}.
+                </h1>
+                <p className="max-w-2xl text-sm leading-7 text-white/90 sm:text-base">
+                  تابع تقدمك، افتح الدروس بالترتيب، وادخل الامتحانات صفحة صفحة بنفس أسلوب المنصة الحقيقي.
+                </p>
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <Link
+                    to="/courses"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-extrabold text-[#0077B6] transition hover:scale-[1.01]"
+                  >
+                    استعرض الكورسات
+                  </Link>
+                  <Link
+                    to={nextCourse ? `/courses/${nextCourse.id}` : "/courses"}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-extrabold text-white backdrop-blur transition hover:bg-white/15"
+                  >
+                    {nextCourse ? "كمل الكورس" : "ابدأ من الكورسات"}
+                    <PlayCircle size={16} />
+                  </Link>
+                </div>
+              </div>
+            </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((s, i) => {
-            const Icon = s.icon;
+            <div className="grid gap-3 bg-slate-50 p-6 dark:bg-slate-900">
+              <div className="rounded-[1.5rem] bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">التقدم العام</p>
+                <div className="mt-3 flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-4xl font-extrabold text-[#0077B6] dark:text-[#00A8E8]">{totalProgress}%</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">متوسط رحلتك التعليمية</p>
+                  </div>
+                  <div className="rounded-2xl bg-[#0077B6]/10 p-3 text-[#0077B6] dark:bg-[#00A8E8]/10 dark:text-[#00A8E8]">
+                    <Award size={28} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[1.5rem] bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">الدرس الحالي</p>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-extrabold">{nextCourse?.title || "لا يوجد كورس بعد"}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">ابدأ خطوة بخطوة</p>
+                  </div>
+                  <div className="rounded-2xl bg-[#FF6B35]/10 p-3 text-[#FF6B35]">
+                    <TimerReset size={22} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {stats.map((item, index) => {
+            const Icon = item.icon;
             return (
               <motion.div
-                key={s.label}
-                initial={{ opacity: 0, y: 16 }}
+                key={item.label}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: i * 0.05 }}
-                className="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 flex flex-col items-end gap-3 ring-1 ring-transparent hover:ring-amber-300/60 dark:hover:ring-amber-500/30 transition-all duration-300"
+                transition={{ duration: 0.25, delay: index * 0.03 }}
+                className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950"
               >
-                <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-amber-400 flex items-center justify-center">
-                  <Icon size={20} />
+                <div className={`inline-flex rounded-2xl bg-gradient-to-l ${item.color} p-3 text-white`}>
+                  <Icon size={18} />
                 </div>
-                <p className="text-2xl font-extrabold">{s.value}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{s.label}</p>
+                <p className="mt-4 text-2xl font-extrabold">{item.value}</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.label}</p>
               </motion.div>
             );
           })}
-        </div>
+        </section>
 
-        {nextCourse ? (
-          <section className="bg-slate-50 dark:bg-slate-900 rounded-3xl p-6 sm:p-8 ring-1 ring-black/5 dark:ring-white/10">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
-              <h2 className="text-xl font-extrabold">كمل مذاكرتك الآن</h2>
-              <Link
-                to={`/courses/${nextCourse.id}`}
-                className="text-sm font-bold text-red-800 dark:text-amber-400 hover:underline flex items-center gap-1"
-              >
-                فتح الكورس
-                <ArrowLeft size={14} />
+        <section className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+          <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div className="text-right">
+                <h2 className="text-xl font-extrabold">استكمل رحلتك</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400">الكورسات التي التحقت بها تظهر هنا بالترتيب.</p>
+              </div>
+              <Link to="/courses" className="text-sm font-bold text-[#0077B6] hover:underline dark:text-[#00A8E8]">
+                كل الكورسات
               </Link>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-2 bg-white dark:bg-slate-950 rounded-2xl p-5 border border-slate-100 dark:border-slate-800">
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">الكورس الحالي</p>
-                <h3 className="font-extrabold text-lg mb-3">{nextCourse.title}</h3>
-                <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-red-800 dark:bg-amber-400 rounded-full"
-                    style={{ width: `${user?.progress?.[nextCourse.id]?.percentage || 0}%` }}
-                  />
-                </div>
-                <p className="text-xs mt-2 text-slate-500 dark:text-slate-400">
-                  التقدم: {user?.progress?.[nextCourse.id]?.percentage || 0}%
-                </p>
+            {orderedProgressEntries.length > 0 ? (
+              <div className="grid gap-4">
+                {orderedProgressEntries.map(({ course, progress, watchedLessons }) => (
+                  <div key={course.id} className="rounded-[1.5rem] border border-slate-200 bg-[#F8FAFC] p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1 text-right">
+                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{course.grade || "الصف الدراسي"}</p>
+                        <h3 className="mt-1 truncate text-lg font-extrabold">{course.title}</h3>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                          {course.description || "كورس تفاعلي مع فيديوهات وكويزات وملفات."}
+                        </p>
+                        <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                          <div className="h-full rounded-full bg-gradient-to-l from-[#0077B6] to-[#00A8E8]" style={{ width: `${progress}%` }} />
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                          {progress}% · {watchedLessons.length} درس مكتمل
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <Link
+                          to={`/courses/${course.id}`}
+                          className="inline-flex items-center gap-2 rounded-2xl bg-[#0077B6] px-4 py-3 text-sm font-extrabold text-white transition hover:bg-[#FF6B35]"
+                        >
+                          فتح الكورس
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="bg-gradient-to-br from-red-800 to-red-950 rounded-2xl p-5 text-white flex flex-col justify-between">
-                <PlayCircle size={30} className="opacity-90" />
-                <p className="text-sm leading-relaxed">اكمل ترتيب الدروس خطوة بخطوة، كل درس يفتح اللي بعده تلقائيًا.</p>
+            ) : (
+              <div className="rounded-[1.5rem] border border-dashed border-slate-300 p-8 text-center text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                لسه ما اشتركتش في أي كورس. ادخل على صفحة الكورسات واختار أول كورس يناسبك.
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-6">
+            <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950">
+              <h2 className="text-xl font-extrabold">أحدث نتائجك</h2>
+              <div className="mt-4 space-y-3">
+                {recentQuizResults.length > 0 ? (
+                  recentQuizResults.slice(0, 5).map(({ courseId: itemCourseId, quizId, result }) => {
+                    const course = courses.find((entry) => entry.id === itemCourseId);
+                    return (
+                      <div key={`${itemCourseId}-${quizId}`} className="rounded-2xl border border-slate-200 bg-[#F8FAFC] p-4 dark:border-slate-800 dark:bg-slate-900">
+                        <p className="text-sm font-extrabold">{course?.title || "كورس"}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">نتيجة الكويز {quizId}</p>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <span className="rounded-full bg-[#0077B6]/10 px-3 py-1 text-xs font-bold text-[#0077B6] dark:bg-[#00A8E8]/10 dark:text-[#00A8E8]">
+                            {result.percentage}%
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500 dark:text-slate-400">
+                          <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                            <span className="block text-[10px] font-bold">الزمن</span>
+                            <span dir="ltr" className="mt-1 block font-black text-slate-800 dark:text-slate-100">{formatDuration(result.timeSpentSeconds)}</span>
+                          </div>
+                          <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                            <span className="block text-[10px] font-bold">التاريخ</span>
+                            <span className="mt-1 block font-black text-slate-800 dark:text-slate-100">
+                              {new Date(result.updatedAt || Date.now()).toLocaleDateString("ar-EG")}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                    لسه ما حلّيتش أي كويز.
+                  </p>
+                )}
               </div>
             </div>
-          </section>
-        ) : (
-          <section className="bg-slate-50 dark:bg-slate-900 rounded-3xl p-8 text-center ring-1 ring-black/5 dark:ring-white/10">
-            <h2 className="text-xl font-extrabold mb-2">لسه مش مشترك في أي كورس</h2>
-            <p className="text-slate-500 dark:text-slate-400 mb-5">ادخل صفحة الكورسات واختر أول كورس يناسبك.</p>
-            <Link
-              to="/courses"
-              className="inline-flex items-center gap-2 bg-red-800 text-white font-bold px-5 py-2.5 rounded-xl hover:bg-red-900 transition-colors duration-300"
-            >
-              استعرض الكورسات
-              <ArrowLeft size={16} />
-            </Link>
-          </section>
-        )}
+
+          </div>
+        </section>
       </div>
     </DashboardLayout>
   );

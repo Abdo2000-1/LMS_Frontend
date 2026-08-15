@@ -44,9 +44,10 @@ export function AuthProvider({ children }) {
   }
 
   async function register(payload) {
-    const { user: newUser, token: nextToken } = await registerRequest(payload);
-    setUser(newUser);
-    setToken(nextToken);
+    const { user: newUser } = await registerRequest(payload);
+    await logoutRequest();
+    setUser(null);
+    setToken(null);
     return newUser;
   }
 

@@ -3,31 +3,29 @@ import apiClient from "../lib/apiClient.js";
 
 const BrandingContext = createContext(null);
 
-const defaultBranding = {
-  teacherDisplayName: "الأستاذ",
+const fixedBranding = {
+  teacherDisplayName: "Mena Mourid",
+  englishBrandName: "MENA MOURID",
   logoUrl: "",
-  primaryColor: "#2563EB",
-  supportEmail: "",
-  footerText: "",
+  primaryColor: "#00A8E8",
+  supportEmail: "support@menamourid.com",
+  footerText: "منصة الدكتور مينا موريد للكيمياء: تجارب عملية، متابعة مستمرة، وتقفيل المادة من أول مرة.",
 };
 
 export function BrandingProvider({ children }) {
-  const [branding, setBranding] = useState(defaultBranding);
+  const [branding, setBranding] = useState(fixedBranding);
 
   useEffect(() => {
     apiClient
       .get("/api/branding", { skipGlobalErrorToast: true })
       .then(({ data }) => {
         setBranding({
-          ...defaultBranding,
-          teacherDisplayName: data.teacherDisplayName || defaultBranding.teacherDisplayName,
-          logoUrl: data.logoUrl || "",
-          primaryColor: data.primaryColor || defaultBranding.primaryColor,
-          supportEmail: data.supportEmail || "",
-          footerText: data.footerText || "",
+          ...fixedBranding,
+          primaryColor: data.primaryColor || fixedBranding.primaryColor,
+          supportEmail: data.supportEmail || fixedBranding.supportEmail,
         });
       })
-      .catch(() => setBranding(defaultBranding));
+      .catch(() => setBranding(fixedBranding));
   }, []);
 
   const value = useMemo(() => branding, [branding]);

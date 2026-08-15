@@ -55,7 +55,7 @@ export default function Profile() {
           className="bg-slate-50 dark:bg-slate-900 rounded-3xl p-8 sm:p-10 ring-1 ring-black/5 dark:ring-white/10"
         >
           <div className="flex flex-col items-center gap-3 mb-8 text-center">
-            <div className="w-20 h-20 rounded-full bg-red-800 dark:bg-amber-400 text-white dark:text-slate-950 flex items-center justify-center text-2xl font-extrabold">
+            <div className="w-20 h-20 rounded-full bg-chem-deep dark:bg-chem-light text-white dark:text-slate-950 flex items-center justify-center text-2xl font-extrabold">
               {user?.name?.charAt(0) || "؟"}
             </div>
             <div>
@@ -74,7 +74,7 @@ export default function Profile() {
             {serverError && (
               <div
                 role="alert"
-                className="text-sm bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/40 rounded-xl px-4 py-3 text-right"
+                className="text-sm bg-chem-deep/10 dark:bg-chem-deep/20 text-chem-deep dark:text-chem-light border border-chem-deep/20 dark:border-chem-deep/40 rounded-xl px-4 py-3 text-right"
               >
                 {serverError}
               </div>
@@ -93,7 +93,7 @@ export default function Profile() {
                     setName(e.target.value);
                     if (serverError) setServerError("");
                   }}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 pr-11 pl-4 py-3 text-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-amber-300 focus:border-amber-400"
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 pr-11 pl-4 py-3 text-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-chem-light focus:border-chem-cta"
                 />
               </div>
             </div>
@@ -154,7 +154,7 @@ export default function Profile() {
               <button
                 type="submit"
                 disabled={isSaving}
-                className="flex-1 bg-red-800 text-white font-extrabold rounded-xl py-3 hover:bg-red-900 hover:shadow-lg hover:shadow-red-800/30 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2"
+                className="flex-1 bg-chem-deep text-white font-extrabold rounded-xl py-3 hover:bg-chem-deep/90 hover:shadow-lg hover:shadow-chem-deep/30 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2"
               >
                 {saved && <Check size={18} />}
                 {isSaving ? "جاري الحفظ..." : saved ? "اتحفظ بنجاح" : "حفظ التعديلات"}

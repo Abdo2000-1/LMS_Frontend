@@ -32,6 +32,22 @@ function mapPayment(payment) {
   };
 }
 
+function mapPaymentRequest(request) {
+  return {
+    id: request.id,
+    studentId: request.studentId,
+    studentName: request.studentName || "",
+    studentPhone: request.studentPhone || "",
+    courseId: request.courseId,
+    courseTitle: request.courseTitle || "",
+    proofImageUrl: request.proofImageUrl || "",
+    status: request.status || "pending",
+    totalPrice: Number(request.totalPrice || 0),
+    walletChannel: request.walletChannel || "manual",
+    createdAt: request.createdAt,
+  };
+}
+
 /**
  * Create a payment order for a course.
  */
@@ -51,10 +67,61 @@ export async function createPaymentOrder({ user, course }) {
       referenceCode: data.referenceCode,
       paymentUrl: data.paymentUrl || "#",
       paid: data.paid || false,
+      vodafoneCash: data.vodafoneCash || "01000000000",
+      instaPay: data.instaPay || "mena.mourid@instapay",
     };
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
+}
+
+export async function submitManualPaymentRequest({ courseId, proofImage, walletChannel = "manual" }) {
+  if (!courseId) throw new Error("بيانات الكورس غير مكتملة.");
+  if (!proofImage) throw new Error("من فضلك ارفع صورة إثبات التحويل.");
+
+  const formData = new FormData();
+  formData.append("courseId", courseId);
+  formData.append("walletChannel", walletChannel);
+  formData.append("proofImage", proofImage);
+
+  try {
+    const { data } = await apiClient.post("/api/payments/requests", formData, {
+      ...requestConfig,
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function approvePaymentRequest(requestId) {
+  try {
+    await apiClient.post(`/api/payments/requests/${requestId}/approve`, null, requestConfig);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export function subscribePaymentRequests(callback) {
+  let active = true;
+
+  const load = () =>
+    apiClient
+      .get("/api/payments/requests", requestConfig)
+      .then(({ data }) => {
+        if (active) callback(Array.isArray(data) ? data.map(mapPaymentRequest) : []);
+      })
+      .catch(() => {
+        if (active) callback([]);
+      });
+
+  load();
+  const timer = setInterval(load, 10000);
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
 }
 
 /**

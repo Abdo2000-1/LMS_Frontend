@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   BadgeDollarSign,
@@ -16,6 +17,12 @@ import {
   Upload,
   Users,
   Wallet,
+  GraduationCap,
+  MapPinned,
+  Mail,
+  Phone,
+  AlertTriangle,
+  FileSpreadsheet
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
@@ -26,20 +33,28 @@ import {
   buildCourseContent,
   createCourse,
   deleteCourse,
+  deleteLesson,
+  deleteQuizFromCourse,
+  deleteResourceFromCourse,
+  getCourseById,
   getTenantStudents,
+  updateCourse,
   subscribeCourses,
   subscribeQuizAttempts,
   unblockStudent,
+  addLessonToModule
 } from "../services/courseService.js";
-import { subscribePayments } from "../services/paymentService.js";
+import { approvePaymentRequest, subscribePaymentRequests, subscribePayments } from "../services/paymentService.js";
 import { uploadFileToStorage, uploadImageToStorage } from "../services/storageService.js";
+import apiClient from "../lib/apiClient.js";
 
 const tabs = [
-  { id: "courses", label: "الكورسات", icon: BookOpen },
-  { id: "files", label: "الملفات", icon: FileText },
-  { id: "quizzes", label: "الكويزات", icon: HelpCircle },
-  { id: "students", label: "الطلاب", icon: Users },
-  { id: "reports", label: "الدفع والدرجات", icon: Wallet },
+  { id: "courses", label: "الكورسات الحالية", icon: BookOpen },
+  { id: "students", label: "بيانات الطلاب", icon: Users },
+  { id: "student-details", label: "تتبع وتفاصيل الطلاب", icon: NotebookText },
+  { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet },
+  { id: "add-course", label: "إضافة كورس جديد", icon: PlusCircle },
+  { id: "add-exam", label: "إضافة امتحان جديد", icon: HelpCircle },
 ];
 
 function formatDate(value) {
@@ -47,6 +62,13 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("ar-EG", { hour12: true });
+}
+
+function formatDuration(seconds) {
+  const safeSeconds = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remaining = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
 }
 
 const emptyQuestion = () => ({
@@ -58,19 +80,91 @@ const emptyQuestion = () => ({
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const isTeacher = user?.role === "teacher";
   const [activeTab, setActiveTab] = useState("courses");
   const [courses, setCourses] = useState([]);
   const [students, setStudents] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [paymentRequests, setPaymentRequests] = useState([]);
   const [attempts, setAttempts] = useState([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [selectedStudentDetail, setSelectedStudentDetail] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
+  const [studentGovernorateFilter, setStudentGovernorateFilter] = useState("");
+  const [banSearch, setBanSearch] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
+  // Stats / Dashboard calculations
+  const summary = useMemo(() => {
+    return {
+      totalCourses: courses.length,
+      activeStudents: students.filter((student) => !student.isBlocked).length,
+      paidPayments: payments.filter((payment) => payment.status === "paid").length,
+      pendingRequests: paymentRequests.filter((request) => request.status === "pending").length,
+    };
+  }, [courses, payments, paymentRequests, students]);
+
+  // Fetch top 3 governorates dynamically
+  const topGovernorates = useMemo(() => {
+    const counts = {};
+    students.forEach((s) => {
+      const gov = (s.governorate || "غير محدد").trim();
+      counts[gov] = (counts[gov] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+  }, [students]);
+
+  const governorateOptions = useMemo(() => {
+    return [...new Set(students.map((student) => student.governorate).filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b), "ar"));
+  }, [students]);
+
+  // Subscriptions
+  useEffect(() => {
+    const unsubCourses = subscribeCourses(setCourses, true);
+    const unsubPayments = subscribePayments(setPayments);
+    const unsubPaymentRequests = subscribePaymentRequests(setPaymentRequests);
+    const unsubAttempts = subscribeQuizAttempts(setAttempts);
+    getTenantStudents().then(setStudents).catch(() => setError("تعذر تحميل قائمة الطلاب."));
+    return () => {
+      unsubCourses();
+      unsubPayments();
+      unsubPaymentRequests();
+      unsubAttempts();
+    };
+  }, []);
+
+  // Fetch selected student detailed data
+  useEffect(() => {
+    if (selectedStudentId && (activeTab === "students" || activeTab === "student-details")) {
+      setLoadingDetail(true);
+      apiClient.get(`/api/users/students/${selectedStudentId}`)
+        .then(({ data }) => {
+          setSelectedStudentDetail(data);
+          setLoadingDetail(false);
+        })
+        .catch(() => {
+          setSelectedStudentDetail(null);
+          setLoadingDetail(false);
+        });
+    }
+  }, [selectedStudentId, activeTab]);
+
+  // Automatically select first items on load
+  useEffect(() => {
+    if (!selectedStudentId && students.length) {
+      setSelectedStudentId(students[0].uid);
+    }
+  }, [students, selectedStudentId]);
+
+  // 1. ADD COURSE FORM STATE
   const [courseForm, setCourseForm] = useState({
     title: "",
     description: "",
@@ -78,83 +172,204 @@ export default function TeacherDashboard() {
     price: "",
     discountPercent: "",
     thumbnailUrl: "",
-    units: [{ title: "", youtubeVideoId: "", order: 1, isFree: false }],
-    resources: [],
-  });
-
-  const [fileForm, setFileForm] = useState({
-    courseId: "",
-    title: "",
-    fileUrl: "",
-    fileName: "",
-    fileType: "",
-    order: "",
     isFree: false,
+    isPublished: true,
   });
+  const [editingCourseId, setEditingCourseId] = useState("");
 
-  const [quizForm, setQuizForm] = useState({
+  // State to append lessons, resources, or quizzes to an EXISTING course dynamically
+  const [selectedCourseForItems, setSelectedCourseForItems] = useState("");
+  const currentSelectedCourseObj = useMemo(() => {
+    return courses.find(c => c.id === selectedCourseForItems) || courses[0] || null;
+  }, [courses, selectedCourseForItems]);
+  const editingCourseObj = useMemo(() => {
+    return editingCourseId ? courses.find((course) => course.id === editingCourseId) || null : null;
+  }, [courses, editingCourseId]);
+  const currentSelectedCourseContent = useMemo(() => {
+    return currentSelectedCourseObj ? buildCourseContent(currentSelectedCourseObj) : [];
+  }, [currentSelectedCourseObj]);
+
+  useEffect(() => {
+    if (courses.length && !selectedCourseForItems) {
+      setSelectedCourseForItems(courses[0].id);
+    }
+  }, [courses, selectedCourseForItems]);
+
+  // Helper to calculate the next FIFO order index
+  const nextItemOrder = useMemo(() => {
+    if (!currentSelectedCourseObj) return 1;
+    const content = buildCourseContent(currentSelectedCourseObj);
+    if (content.length === 0) return 1;
+    const maxOrder = Math.max(...content.map(item => item.sortOrder || item.order || 0));
+    return maxOrder + 1;
+  }, [currentSelectedCourseObj]);
+
+  // Forms for adding content sequentially
+  const [lessonForm, setLessonForm] = useState({ title: "", videoUrl: "", isPreview: false });
+  const [fileForm, setFileForm] = useState({ title: "", fileUrl: "", fileName: "", fileType: "", isFree: false });
+  const [quizForm, setQuizForm] = useState({ title: "", minutes: "15", isMandatory: false, questions: [emptyQuestion()] });
+  const [fileInputMode, setFileInputMode] = useState("url"); // "url" | "device"
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [videoInputMode, setVideoInputMode] = useState("upload"); // "upload" | "url"
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+
+  // 2. EXAM FORM STATE
+  const [examForm, setExamForm] = useState({
     courseId: "",
     title: "",
-    minutes: "15",
-    order: "",
-    questions: [emptyQuestion()],
+    price: "",
+    isFree: false,
+    questionsCount: 5,
+    questions: Array.from({ length: 5 }, () => emptyQuestion()),
   });
 
   useEffect(() => {
-    const unsubCourses = subscribeCourses(setCourses, true);
-    const unsubPayments = subscribePayments(setPayments);
-    const unsubAttempts = subscribeQuizAttempts(setAttempts);
-    getTenantStudents().then(setStudents).catch(() => setError("تعذر تحميل قائمة الطلاب."));
-    return () => {
-      unsubCourses();
-      unsubPayments();
-      unsubAttempts();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!fileForm.courseId && courses.length) setFileForm((prev) => ({ ...prev, courseId: courses[0].id }));
-    if (!quizForm.courseId && courses.length) setQuizForm((prev) => ({ ...prev, courseId: courses[0].id }));
-    if (!selectedStudentId && students.length) setSelectedStudentId(students[0].uid);
-  }, [courses, fileForm.courseId, quizForm.courseId, selectedStudentId, students]);
-
-  const summary = useMemo(
-    () => ({
-      totalCourses: courses.length,
-      activeStudents: students.filter((student) => !student.isBlocked).length,
-      paidPayments: payments.filter((payment) => payment.status === "paid").length,
-      pendingPayments: payments.filter((payment) => payment.status === "pending").length,
-    }),
-    [courses, payments, students]
-  );
-
-  const selectedStudent = students.find((student) => student.uid === selectedStudentId);
-  const filteredStudents = students.filter((student) => {
-    const term = studentSearch.trim().toLowerCase();
-    if (!term) return true;
-    return [student.name, student.phone, student.email, student.grade].some((value) =>
-      String(value || "").toLowerCase().includes(term)
-    );
-  });
+    if (courses.length && !examForm.courseId) {
+      setExamForm(prev => ({ ...prev, courseId: courses[0].id }));
+    }
+  }, [courses, examForm.courseId]);
 
   function setErrorMessage(message) {
     setNotice("");
     setError(message);
   }
 
-  async function refreshStudents() {
-    const refreshed = await getTenantStudents();
-    setStudents(refreshed);
+  async function handleImageUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsUploadingImage(true);
+    setError("");
+    try {
+      const url = await uploadImageToStorage(file);
+      setCourseForm((prev) => ({ ...prev, thumbnailUrl: url }));
+      setNotice("تم رفع صورة الغلاف بنجاح!");
+    } catch (uploadError) {
+      setErrorMessage("فشل رفع الصورة: " + uploadError.message);
+    } finally {
+      setIsUploadingImage(false);
+    }
   }
 
+  // FIFO sequential additions to courses
+  async function handleAddLesson(e) {
+    e.preventDefault();
+    if (!currentSelectedCourseObj || !lessonForm.title) return;
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      // Find the module or create one
+      let moduleId = currentSelectedCourseObj.modules?.[0]?.id;
+      if (!moduleId) {
+        const updatedCourse = await apiClient.post(`/api/courses/${currentSelectedCourseObj.id}/modules`, {
+          title: "المحاضرات الرئيسية",
+          sortOrder: 1
+        });
+        moduleId = updatedCourse.data.modules[0].id;
+      }
+      
+      await addLessonToModule(moduleId, {
+        title: lessonForm.title,
+        videoUrl: lessonForm.videoUrl, // can be Drive File ID or YT link
+        sortOrder: nextItemOrder,
+        isPreview: lessonForm.isPreview
+      });
+
+      setNotice("تمت إضافة المحاضرة بالترتيب FIFO بنجاح!");
+      setLessonForm({ title: "", videoUrl: "", isPreview: false });
+    } catch (err) {
+      setErrorMessage(err.message || "تعذر إضافة الدرس");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleAddFile(e) {
+    e.preventDefault();
+    if (!currentSelectedCourseObj || !fileForm.title || !fileForm.fileUrl) return;
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await addResourceToCourse(currentSelectedCourseObj.id, {
+        title: fileForm.title,
+        fileUrl: fileForm.fileUrl,
+        fileName: fileForm.fileName || "ملزمة كيمياء.pdf",
+        fileType: "pdf",
+        order: nextItemOrder,
+        isFree: fileForm.isFree
+      });
+      setNotice("تمت إضافة الملزمة/الملف بالترتيب FIFO بنجاح!");
+      setFileForm({ title: "", fileUrl: "", fileName: "", fileType: "", isFree: false });
+    } catch (err) {
+      setErrorMessage(err.message || "تعذر إضافة الملف");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleAddQuiz(e) {
+    e.preventDefault();
+    if (!currentSelectedCourseObj || !quizForm.title) return;
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await addQuizToCourse(currentSelectedCourseObj.id, {
+        title: quizForm.title,
+        minutes: Number(quizForm.minutes),
+        order: nextItemOrder,
+        isMandatory: quizForm.isMandatory,
+        questions: quizForm.questions
+      });
+      setNotice("تمت إضافة الكويز بالترتيب FIFO بنجاح!");
+      setQuizForm({ title: "", minutes: "15", isMandatory: false, questions: [emptyQuestion()] });
+    } catch (err) {
+      setErrorMessage(err.message || "تعذر إضافة الكويز");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  // Create Course
   async function submitCourse(event) {
     event.preventDefault();
     setError("");
     setNotice("");
     setIsBusy(true);
     try {
-      await createCourse({ teacherId: user.uid, payload: courseForm });
-      setNotice("تم حفظ الكورس بنجاح.");
+      const payload = {
+        title: courseForm.title,
+        description: courseForm.description,
+        grade: courseForm.grade,
+        price: courseForm.isFree ? 0 : Number(courseForm.price || 0),
+        discountPercent: Number(courseForm.discountPercent || 0),
+        thumbnailUrl: courseForm.thumbnailUrl,
+        isPublished: courseForm.isPublished,
+        slug: courseForm.slug || "",
+        units: editingCourseObj?.units || [],
+        resources: editingCourseObj?.resources || [],
+        quizzes: editingCourseObj?.quizzes || [],
+      };
+
+      if (editingCourseId) {
+        const updatedCourse = await updateCourse(editingCourseId, payload);
+        await refreshCourseCard(updatedCourse);
+        setNotice("تم تحديث بيانات الكورس بنجاح.");
+      } else {
+        const createdCourse = await createCourse({
+          teacherId: user.uid,
+          payload: {
+            ...payload,
+            units: [],
+            resources: [],
+            quizzes: [],
+          }
+        });
+        setCourses((prev) => [createdCourse, ...prev.filter((course) => course.id !== createdCourse.id)]);
+        setNotice("تم إنشاء الكورس الجديد بنجاح! يمكنك الآن إضافة محتويات إليه.");
+      }
       setCourseForm({
         title: "",
         description: "",
@@ -162,447 +377,1194 @@ export default function TeacherDashboard() {
         price: "",
         discountPercent: "",
         thumbnailUrl: "",
-        units: [{ title: "", youtubeVideoId: "", order: 1, isFree: false }],
-        resources: [],
-      });
-    } catch (saveError) {
-      setErrorMessage(saveError.message || "تعذر حفظ الكورس.");
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleImageUpload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setIsUploadingImage(true);
-    try {
-      const url = await uploadImageToStorage(file);
-      setCourseForm((prev) => ({ ...prev, thumbnailUrl: url }));
-    } catch (uploadError) {
-      setErrorMessage(uploadError.message || "فشل رفع الصورة.");
-    } finally {
-      setIsUploadingImage(false);
-      event.target.value = "";
-    }
-  }
-
-  async function handleFileUpload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setIsUploadingFile(true);
-    try {
-      const url = await uploadFileToStorage(file);
-      setFileForm((prev) => ({
-        ...prev,
-        fileUrl: url,
-        fileName: file.name,
-        fileType: file.type || file.name.split(".").pop(),
-      }));
-    } catch (uploadError) {
-      setErrorMessage(uploadError.message || "فشل رفع الملف.");
-    } finally {
-      setIsUploadingFile(false);
-      event.target.value = "";
-    }
-  }
-
-  function updateUnit(index, field, value) {
-    setCourseForm((prev) => {
-      const units = [...prev.units];
-      units[index] = { ...units[index], [field]: value };
-      return { ...prev, units };
-    });
-  }
-
-  function updateQuestion(index, field, value) {
-    setQuizForm((prev) => {
-      const questions = [...prev.questions];
-      questions[index] = { ...questions[index], [field]: value };
-      return { ...prev, questions };
-    });
-  }
-
-  function updateChoice(questionIndex, choiceIndex, value) {
-    setQuizForm((prev) => {
-      const questions = [...prev.questions];
-      const choices = [...questions[questionIndex].choices];
-      choices[choiceIndex] = value;
-      questions[questionIndex] = { ...questions[questionIndex], choices };
-      return { ...prev, questions };
-    });
-  }
-
-  async function submitFile(event) {
-    event.preventDefault();
-    if (!fileForm.courseId) return;
-    setError("");
-    setNotice("");
-    setIsBusy(true);
-    try {
-      await addResourceToCourse(fileForm.courseId, fileForm);
-      setNotice("تمت إضافة الملف للكورس.");
-      setFileForm((prev) => ({
-        ...prev,
-        title: "",
-        fileUrl: "",
-        fileName: "",
-        fileType: "",
-        order: "",
         isFree: false,
-      }));
-    } catch (fileError) {
-      setErrorMessage(fileError.message || "تعذر إضافة الملف.");
+        isPublished: true,
+      });
+      setEditingCourseId("");
+    } catch (err) {
+      setErrorMessage(err.message || "تعذر حفظ الكورس.");
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function submitQuiz(event) {
-    event.preventDefault();
-    if (!quizForm.courseId) return;
+  function startEditCourse(course) {
+    setEditingCourseId(course.id);
+    setCourseForm({
+      title: course.title || "",
+      description: course.description || "",
+      grade: course.grade || "الصف الثالث الثانوي",
+      price: String(course.price || ""),
+      discountPercent: String(course.discountPercent || ""),
+      thumbnailUrl: course.thumbnailUrl || "",
+      isFree: Number(course.price || 0) <= 0,
+      isPublished: course.isPublished !== false,
+    });
+    setActiveTab("add-course");
+  }
+
+  async function refreshCourseCard(updatedCourse) {
+    setCourses((prev) => prev.map((course) => (course.id === updatedCourse.id ? updatedCourse : course)));
+  }
+
+  async function removeLessonItem(lessonId) {
+    if (!currentSelectedCourseObj) return;
+    await deleteLesson(lessonId);
+    const refreshed = await getCourseById(currentSelectedCourseObj.id, { includeUnpublished: true });
+    await refreshCourseCard(refreshed);
+  }
+
+  async function removeResourceItem(resourceId) {
+    if (!currentSelectedCourseObj) return;
+    const refreshed = await deleteResourceFromCourse(currentSelectedCourseObj.id, resourceId);
+    await refreshCourseCard(refreshed);
+  }
+
+  async function removeQuizItem(quizId) {
+    if (!currentSelectedCourseObj) return;
+    const refreshed = await deleteQuizFromCourse(currentSelectedCourseObj.id, quizId);
+    await refreshCourseCard(refreshed);
+  }
+
+  // Create Exam Form MCQ Questions helper
+  function updateExamQuestion(qIdx, field, val) {
+    setExamForm(prev => {
+      const questions = [...prev.questions];
+      questions[qIdx] = { ...questions[qIdx], [field]: val };
+      return { ...prev, questions };
+    });
+  }
+
+  function updateExamChoice(qIdx, cIdx, val) {
+    setExamForm(prev => {
+      const questions = [...prev.questions];
+      const choices = [...questions[qIdx].choices];
+      choices[cIdx] = val;
+      questions[qIdx] = { ...questions[qIdx], choices };
+      return { ...prev, questions };
+    });
+  }
+
+  // Save the exam as an obligatory (isMandatory = true) MCQ quiz in the selected course
+  async function submitExam(e) {
+    e.preventDefault();
+    if (!examForm.courseId || !examForm.title) return;
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await addQuizToCourse(examForm.courseId, {
+        title: examForm.title,
+        minutes: 30, // 30 mins standard exam length
+        order: 99, // exams sit at the end
+        isMandatory: true, // Exams are mandatory and block next modules
+        questions: examForm.questions
+      });
+      setNotice("تم إنشاء الامتحان وإضافته كاختبار إجباري بنجاح!");
+      setExamForm(prev => ({
+        ...prev,
+        title: "",
+        questions: Array.from({ length: prev.questionsCount }, () => emptyQuestion())
+      }));
+    } catch (err) {
+      setErrorMessage(err.message || "فشل إنشاء الامتحان");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function approveRequest(requestId) {
     setError("");
     setNotice("");
     setIsBusy(true);
     try {
-      await addQuizToCourse(quizForm.courseId, quizForm);
-      setNotice("تمت إضافة الكويز وتصحيحاته.");
-      setQuizForm((prev) => ({
-        ...prev,
-        title: "",
-        minutes: "15",
-        order: "",
-        questions: [emptyQuestion()],
-      }));
-    } catch (quizError) {
-      setErrorMessage(quizError.message || "تعذر إضافة الكويز.");
+      await approvePaymentRequest(requestId);
+      setPaymentRequests((items) =>
+        items.map((item) => item.id === requestId ? { ...item, status: "approved" } : item)
+      );
+      setNotice("تم تفعيل الكورس للطالب فوراً وإرسال تأكيد التفعيل.");
+    } catch (err) {
+      setErrorMessage(err.message || "فشل اعتماد الطلب.");
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function toggleStudentBlock(student) {
+  async function toggleStudentBlock(studentObj) {
     setError("");
     setNotice("");
     try {
-      if (student.isBlocked) {
-        await unblockStudent(student.uid);
-        setNotice("تم السماح للطالب بالدخول مرة أخرى.");
+      if (studentObj.isBlocked) {
+        await unblockStudent(studentObj.uid);
+        setNotice("تم إلغاء طرد الطالب والسماح له بالدخول.");
       } else {
-        await blockStudent(student.uid);
-        setNotice("تم طرد الطالب ومنعه من الدخول.");
+        await blockStudent(studentObj.uid);
+        setNotice("تم طرد الطالب ومنعه من دخول المنصة.");
       }
-      await refreshStudents();
-    } catch (blockError) {
-      setErrorMessage(blockError.message || "تعذر تحديث حالة الطالب.");
+      const refreshed = await getTenantStudents();
+      setStudents(refreshed);
+    } catch (err) {
+      setErrorMessage(err.message || "فشل تحديث حالة الطالب.");
     }
   }
+
+  // Search filter for students tab
+  const filteredStudents = useMemo(() => {
+    return students.filter(s => {
+      const term = studentSearch.trim().toLowerCase();
+      const matchesGovernorate = !studentGovernorateFilter || s.governorate === studentGovernorateFilter;
+      if (!matchesGovernorate) return false;
+      if (!term) return true;
+      return [s.name, s.phone, s.studentId, s.email, s.governorate].some(val =>
+        String(val || "").toLowerCase().includes(term)
+      );
+    });
+  }, [students, studentSearch, studentGovernorateFilter]);
+
+  const banFoundStudent = useMemo(() => {
+    const term = banSearch.trim().toLowerCase();
+    if (!term) return null;
+    return students.find(s =>
+      String(s.name).toLowerCase().includes(term) || String(s.phone).includes(term)
+    );
+  }, [students, banSearch]);
 
   return (
-    <DashboardLayout active="/teacher/dashboard">
-      <div className="space-y-8">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-right">
-          <h1 className="text-3xl font-extrabold">لوحة تحكم المدرّس</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            إدارة الكورسات، الدروس، الملفات، الكويزات، الطلاب، المدفوعات والدرجات.
-          </p>
-        </motion.div>
+    <DashboardLayout
+      active="/teacher/dashboard"
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      badges={{ pendingRequests: summary.pendingRequests }}
+    >
+      <div className="space-y-8 font-['Cairo',_sans-serif] text-slate-800" dir="rtl">
+        
+        {/* Header Branding */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-l from-[#0077B6] to-[#00A8E8] text-white p-6 rounded-3xl shadow-xl">
+          <div>
+            <h1 className="text-3xl font-black">لوحة تحكم المعلم</h1>
+            <p className="text-xs opacity-90 mt-1">الدكتور مينا موريد · Dr. MENA MOURID Chemistry LMS</p>
+          </div>
+          <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-2xl backdrop-blur">
+            <GraduationCap />
+            <span className="font-extrabold text-sm">كيمياء الكبار</span>
+          </div>
+        </div>
 
+        {/* Global Alert Notification Banner */}
         {(error || notice) && (
           <div
-            className={`text-sm rounded-xl px-4 py-3 text-right border ${
+            className={`text-sm rounded-2xl px-5 py-4 border ${
               error
-                ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900/40"
-                : "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/40"
+                ? "bg-red-50 text-red-700 border-red-200"
+                : "bg-emerald-50 text-emerald-700 border-emerald-200"
             }`}
           >
             {error || notice}
           </div>
         )}
 
+        {/* Quick Analytics Summary */}
+        {activeTab === "students" && (
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "عدد الكورسات", value: summary.totalCourses, icon: NotebookText },
-            { label: "الطلاب النشطين", value: summary.activeStudents, icon: Users },
-            { label: "مدفوعات مكتملة", value: summary.paidPayments, icon: Wallet },
-            { label: "طلبات معلقة", value: summary.pendingPayments, icon: Clock3 },
-          ].map((item) => {
+            { label: "إجمالي الكورسات المرفوعة", value: summary.totalCourses, icon: BookOpen },
+            { label: "الطلاب المسجلين بالمنصة", value: summary.activeStudents, icon: Users },
+            { label: "عمليات الشراء المعتمدة", value: summary.paidPayments, icon: CheckCircle2 },
+            { label: "طلبات انتظار التفعيل", value: summary.pendingRequests, icon: Clock3, highlight: summary.pendingRequests > 0 },
+          ].map((item, idx) => {
             const Icon = item.icon;
             return (
-              <div key={item.label} className="bg-white dark:bg-slate-900 rounded-2xl p-5 ring-1 ring-black/5 dark:ring-white/10">
-                <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-amber-400 flex items-center justify-center mb-3">
+              <div key={idx} className={`bg-white rounded-3xl p-5 border border-cyan-100 shadow-sm ${
+                item.highlight ? "border-[#FF6B35] bg-orange-50/20" : ""
+              }`}>
+                <div className="w-10 h-10 rounded-2xl bg-cyan-100 text-[#0077B6] flex items-center justify-center mb-3">
                   <Icon size={20} />
                 </div>
-                <p className="text-2xl font-extrabold">{item.value}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{item.label}</p>
+                <p className="text-3xl font-black text-slate-900">{item.value}</p>
+                <p className="text-xs text-slate-500 mt-1 font-bold">{item.label}</p>
               </div>
             );
           })}
         </section>
+        )}
 
-        <div className="flex gap-2 overflow-auto pb-1">
+        {/* Mobile-only tab strip (hidden on desktop — sidebar handles navigation) */}
+        <div className="lg:hidden flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {tabs.map((tab) => {
             const Icon = tab.icon;
+            const isTabActive = activeTab === tab.id;
+            const badgeCount = tab.id === "incoming-requests" ? summary.pendingRequests : 0;
             return (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
-                  activeTab === tab.id
-                    ? "bg-red-800 text-white dark:bg-amber-400 dark:text-slate-950"
-                    : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800"
+                className={`relative shrink-0 inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-extrabold transition-all duration-200 border ${
+                  isTabActive
+                    ? "bg-[#0077B6] text-white border-[#0077B6] shadow-md"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-cyan-50"
                 }`}
               >
-                <Icon size={16} />
+                <Icon size={15} />
                 {tab.label}
+                {badgeCount > 0 && (
+                  <span className="absolute -top-1.5 -left-1.5 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center px-1 animate-pulse">
+                    {badgeCount}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
 
+        {/* --- TAB 1: CURRENT COURSES LIST (GRID view) --- */}
         {activeTab === "courses" && (
-          <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <form onSubmit={submitCourse} className="bg-white dark:bg-slate-900 rounded-2xl p-6 ring-1 ring-black/5 dark:ring-white/10 space-y-4">
-              <h2 className="text-xl font-extrabold flex items-center gap-2">
-                <PlusCircle size={20} />
-                إضافة كورس جديد
-              </h2>
-              <input name="title" value={courseForm.title} onChange={(e) => setCourseForm((p) => ({ ...p, title: e.target.value }))} placeholder="اسم الكورس" className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-              <textarea name="description" value={courseForm.description} onChange={(e) => setCourseForm((p) => ({ ...p, description: e.target.value }))} placeholder="وصف الكورس" rows={3} className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input value={courseForm.grade} onChange={(e) => setCourseForm((p) => ({ ...p, grade: e.target.value }))} placeholder="الصف الدراسي" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-                <input type="number" min="0" value={courseForm.price} onChange={(e) => setCourseForm((p) => ({ ...p, price: e.target.value }))} placeholder="السعر" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-                <input type="number" min="0" max="100" value={courseForm.discountPercent} onChange={(e) => setCourseForm((p) => ({ ...p, discountPercent: e.target.value }))} placeholder="الخصم %" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-              </div>
-              <label className="flex items-center justify-center gap-2 cursor-pointer border border-dashed border-slate-300 dark:border-slate-700 rounded-xl px-4 py-4 bg-slate-50 dark:bg-slate-950 hover:border-amber-400 transition-colors">
-                <Upload size={16} />
-                <span className="text-sm">{isUploadingImage ? "جاري رفع الصورة..." : "اختر صورة الكورس"}</span>
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-              </label>
-              {courseForm.thumbnailUrl && <img src={courseForm.thumbnailUrl} alt="صورة الكورس" className="w-full h-36 object-cover rounded-xl border border-slate-200 dark:border-slate-700" />}
-
-              <div className="space-y-3">
-                <h3 className="font-bold">الدروس الفيديو</h3>
-                {courseForm.units.map((unit, index) => (
-                  <div key={`unit-${index}`} className="grid grid-cols-1 sm:grid-cols-12 gap-2 rounded-xl bg-slate-50 dark:bg-slate-950 p-3 border border-slate-200 dark:border-slate-700">
-                    <input value={unit.title} onChange={(e) => updateUnit(index, "title", e.target.value)} placeholder={`عنوان الدرس ${index + 1}`} className="sm:col-span-4 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm bg-white dark:bg-slate-900 outline-none" />
-                    <input value={unit.youtubeVideoId} onChange={(e) => updateUnit(index, "youtubeVideoId", e.target.value)} placeholder="YouTube link أو Video ID" className="sm:col-span-5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm bg-white dark:bg-slate-900 outline-none" />
-                    <input type="number" min="1" value={unit.order} onChange={(e) => updateUnit(index, "order", Number(e.target.value))} placeholder="الترتيب" className="sm:col-span-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm bg-white dark:bg-slate-900 outline-none" />
-                    <button type="button" onClick={() => setCourseForm((p) => ({ ...p, units: p.units.filter((_, i) => i !== index) }))} className="rounded-lg text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
-                <button type="button" onClick={() => setCourseForm((p) => ({ ...p, units: [...p.units, { title: "", youtubeVideoId: "", order: p.units.length + 1, isFree: false }] }))} className="text-sm font-bold text-red-800 dark:text-amber-400">
-                  + إضافة درس فيديو
-                </button>
-              </div>
-              <button type="submit" disabled={isBusy} className="w-full bg-red-800 text-white font-extrabold rounded-xl py-3 hover:bg-red-900 disabled:opacity-60">
-                {isBusy ? "جاري الحفظ..." : "حفظ الكورس"}
-              </button>
-            </form>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 ring-1 ring-black/5 dark:ring-white/10">
-              <h2 className="text-xl font-extrabold mb-4">الكورسات الحالية</h2>
-              <div className="space-y-3 max-h-[42rem] overflow-auto">
-                {courses.map((course) => (
-                  <div key={course.id} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="font-bold">{course.title}</h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                          <BadgeDollarSign size={12} className="inline ml-1" />
-                          {course.price || 0} ج.م · خصم {course.discountPercent || 0}%
-                        </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          المحتوى: {buildCourseContent(course).length} عنصر
-                        </p>
+          <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm">
+            <h2 className="text-xl font-black text-[#0077B6] mb-5">جميع الكورسات الحالية المرفوعة</h2>
+            {courses.length === 0 ? (
+              <p className="text-slate-500 text-center py-10 font-bold">لا توجد كورسات مرفوعة حتى الآن.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {courses.map((c) => (
+                  <div key={c.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm flex flex-col justify-between">
+                    <div className="relative h-44 bg-slate-100">
+                      {c.thumbnailUrl ? (
+                        <img src={c.thumbnailUrl} alt={c.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400">
+                          <BookOpen size={48} />
+                        </div>
+                      )}
+                      <span className="absolute top-3 left-3 bg-[#0077B6] text-white text-xs font-bold px-3 py-1 rounded-full">
+                        {c.grade}
+                      </span>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      <h3 className="font-black text-lg text-slate-900 leading-tight">{c.title}</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">{c.description || "لا يوجد وصف."}</p>
+                      
+                      <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                        <span className="text-sm font-black text-[#FF6B35]">
+                          {c.price === 0 ? "مجاني" : `${c.price} ج.م`}
+                        </span>
+                        <span className="text-xs text-slate-400 font-bold">
+                          المشتركين: {c.studentsCount} طالب
+                        </span>
                       </div>
-                      <button type="button" onClick={() => deleteCourse(course.id)} className="text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg p-2">
+                    </div>
+                    <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditCourse(c)}
+                          className="text-[#0077B6] hover:text-[#005f92] px-2 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition"
+                        >
+                          تعديل الكورس
+                        </button>
+                        <span className="text-[11px] text-slate-400 font-bold">
+                          تحديث: {formatDate(c.updatedAt)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (confirm("هل تريد حذف هذا الكورس نهائياً؟")) {
+                            await deleteCourse(c.id);
+                          }
+                        }}
+                        className="text-red-600 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
+                      >
                         <Trash2 size={16} />
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            )}
           </section>
         )}
 
-        {activeTab === "files" && (
-          <form onSubmit={submitFile} className="bg-white dark:bg-slate-900 rounded-2xl p-6 ring-1 ring-black/5 dark:ring-white/10 space-y-4">
-            <h2 className="text-xl font-extrabold flex items-center gap-2">
-              <FileText size={20} />
-              إضافة PDF أو PowerPoint داخل ترتيب الكورس
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <select value={fileForm.courseId} onChange={(e) => setFileForm((p) => ({ ...p, courseId: e.target.value }))} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300">
-                {courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
-              </select>
-              <input value={fileForm.title} onChange={(e) => setFileForm((p) => ({ ...p, title: e.target.value }))} placeholder="عنوان الملف" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-              <input type="number" min="1" value={fileForm.order} onChange={(e) => setFileForm((p) => ({ ...p, order: e.target.value }))} placeholder="مكانه في الترتيب" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-            </div>
-            <label className="flex items-center justify-center gap-2 cursor-pointer border border-dashed border-slate-300 dark:border-slate-700 rounded-xl px-4 py-6 bg-slate-50 dark:bg-slate-950 hover:border-amber-400 transition-colors">
-              <Upload size={16} />
-              <span className="text-sm">{isUploadingFile ? "جاري رفع الملف..." : fileForm.fileName || "اختر PDF أو PowerPoint"}</span>
-              <input type="file" accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handleFileUpload} className="hidden" />
-            </label>
-            <button type="submit" disabled={isBusy || !fileForm.fileUrl} className="w-full bg-red-800 text-white font-extrabold rounded-xl py-3 hover:bg-red-900 disabled:opacity-60">
-              إضافة الملف
-            </button>
-          </form>
-        )}
-
-        {activeTab === "quizzes" && (
-          <form onSubmit={submitQuiz} className="bg-white dark:bg-slate-900 rounded-2xl p-6 ring-1 ring-black/5 dark:ring-white/10 space-y-4">
-            <h2 className="text-xl font-extrabold flex items-center gap-2">
-              <HelpCircle size={20} />
-              إضافة كويز MCQ في ترتيب محدد
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <select value={quizForm.courseId} onChange={(e) => setQuizForm((p) => ({ ...p, courseId: e.target.value }))} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300">
-                {courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
-              </select>
-              <input value={quizForm.title} onChange={(e) => setQuizForm((p) => ({ ...p, title: e.target.value }))} placeholder="عنوان الكويز" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-              <input type="number" min="1" value={quizForm.minutes} onChange={(e) => setQuizForm((p) => ({ ...p, minutes: e.target.value }))} placeholder="الوقت بالدقائق" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-              <input type="number" min="1" value={quizForm.order} onChange={(e) => setQuizForm((p) => ({ ...p, order: e.target.value }))} placeholder="مكانه في الترتيب" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-300" />
-            </div>
-            <div className="space-y-4">
-              {quizForm.questions.map((question, questionIndex) => (
-                <div key={`question-${questionIndex}`} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-4 space-y-3">
-                  <input value={question.prompt} onChange={(e) => updateQuestion(questionIndex, "prompt", e.target.value)} placeholder={`نص السؤال ${questionIndex + 1}`} className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-sm outline-none" />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {question.choices.map((choice, choiceIndex) => (
-                      <label key={choiceIndex} className="flex items-center gap-2 rounded-xl bg-white dark:bg-slate-900 px-3 py-2 border border-slate-200 dark:border-slate-700">
-                        <input type="radio" name={`correct-${questionIndex}`} checked={Number(question.correctIndex) === choiceIndex} onChange={() => updateQuestion(questionIndex, "correctIndex", choiceIndex)} />
-                        <input value={choice} onChange={(e) => updateChoice(questionIndex, choiceIndex, e.target.value)} placeholder={`اختيار ${choiceIndex + 1}`} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
-                      </label>
+        {/* --- TAB 2: STUDENTS DATA PANEL (Governorates & Search list + Block screen) --- */}
+        {activeTab === "students" && (
+          <section className="grid grid-cols-1 xl:grid-cols-[1fr_24rem] gap-6">
+            
+            {/* Right student panel */}
+            <div className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-6">
+              
+              {/* Stats and Top Governorates */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="rounded-2xl bg-cyan-50/50 p-4 border border-cyan-100">
+                  <p className="text-xs text-slate-500 font-bold">إجمالي المسجلين بالمنصة</p>
+                  <p className="text-3xl font-black text-[#0077B6] mt-2">{students.length} طالب</p>
+                </div>
+                <div className="rounded-2xl bg-cyan-50/50 p-4 border border-cyan-100 text-right space-y-1">
+                  <p className="text-xs text-slate-500 font-bold">أكثر المحافظات تواجداً</p>
+                  <div className="text-xs font-black space-y-1 mt-1 text-slate-800">
+                    {topGovernorates.map((gov, i) => (
+                      <div key={i} className="flex justify-between">
+                        <span>{gov[1]} طلاب</span>
+                        <span>{i + 1}. {gov[0]}</span>
+                      </div>
                     ))}
                   </div>
-                  <button type="button" onClick={() => setQuizForm((p) => ({ ...p, questions: p.questions.filter((_, i) => i !== questionIndex) }))} className="text-xs font-bold text-red-700">
-                    حذف السؤال
+                </div>
+              </div>
+
+              {/* Scrollable stack of student cards */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-black text-slate-900">سجل الطلاب بالكامل</h3>
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                    <div className="relative w-full sm:w-56">
+                      <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={studentSearch}
+                        onChange={(e) => setStudentSearch(e.target.value)}
+                        placeholder="بحث بالاسم أو ID أو الموبايل..."
+                        className="w-full text-xs rounded-xl border border-slate-200 pr-8 pl-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                    <select
+                      value={studentGovernorateFilter}
+                      onChange={(e) => setStudentGovernorateFilter(e.target.value)}
+                      className="w-full sm:w-44 text-xs rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      <option value="">كل المحافظات</option>
+                      {governorateOptions.map((governorate) => (
+                        <option key={governorate} value={governorate}>{governorate}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-[30rem] overflow-y-auto pr-1">
+                  {filteredStudents.map((s) => {
+                    const enrolledBefore = s.enrolledCourses && s.enrolledCourses.length > 0;
+                    return (
+                      <div
+                        key={s.uid}
+                        className={`p-4 rounded-2xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 transition ${
+                          selectedStudentId === s.uid ? "border-[#0077B6] bg-blue-50/20" : "border-slate-100 bg-slate-50/40"
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-slate-950">{s.name}</span>
+                            <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
+                              ID: {s.studentId || "عشوائي"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 font-bold">{s.phone} · {s.governorate} · {s.grade}</p>
+                          <p className="text-[11px] text-slate-400">
+                            حالة الكورسات السابقة:{" "}
+                            <span className={enrolledBefore ? "text-emerald-600 font-black" : "text-slate-400 font-bold"}>
+                              {enrolledBefore ? "مشترك في كورس سابق" : "لا يوجد اشتراكات"}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedStudentId(s.uid)}
+                            className="text-xs bg-[#0077B6] text-white font-extrabold px-3 py-1.5 rounded-xl hover:bg-[#005f92] transition"
+                          >
+                            تحديد
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedStudentId(s.uid);
+                              setBanSearch(s.phone);
+                            }}
+                            className="text-xs bg-[#FF6B35]/10 text-[#FF6B35] font-extrabold px-3 py-1.5 rounded-xl hover:bg-[#FF6B35]/20 transition"
+                          >
+                            تعديل الحظر
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {filteredStudents.length === 0 && <p className="text-sm text-slate-500 text-center py-6">لا يوجد نتائج تطابق البحث.</p>}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Left ban/unban dashboard panel (تعديل) */}
+            <div className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-4 h-max text-right">
+              <h3 className="text-lg font-black text-[#FF6B35] border-b border-slate-100 pb-2 flex items-center gap-2">
+                <Ban size={18} />
+                تعديل حالة حظر الطالب
+              </h3>
+              
+              <div className="relative">
+                <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={banSearch}
+                  onChange={(e) => setBanSearch(e.target.value)}
+                  placeholder="ابحث برقم التليفون أو الاسم لطرد الطالب..."
+                  className="w-full text-sm rounded-xl border border-slate-200 pr-10 pl-3 py-3 outline-none focus:border-[#FF6B35]"
+                />
+              </div>
+
+              {banFoundStudent ? (
+                <div className="rounded-2xl border border-slate-200 p-4 space-y-3.5 mt-4 bg-slate-50/50">
+                  <div>
+                    <h4 className="font-extrabold text-slate-900 text-sm">{banFoundStudent.name}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{banFoundStudent.phone} · {banFoundStudent.governorate}</p>
+                    <p className="text-xs text-slate-400 mt-1">حالة الحظر: {banFoundStudent.isBlocked ? "مطرود من المنصة" : "نشط"}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleStudentBlock(banFoundStudent)}
+                    className={`w-full py-2.5 rounded-xl font-extrabold text-white text-sm shadow transition-all ${
+                      banFoundStudent.isBlocked ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+                    }`}
+                  >
+                    {banFoundStudent.isBlocked ? "إلغاء الطرد والسماح له بالدخول" : "طرد الطالب وحظره فوراً"}
                   </button>
                 </div>
-              ))}
+              ) : banSearch ? (
+                <p className="text-xs text-red-500 font-bold mt-2">لا يوجد طالب مسجل بهذا الاسم أو الرقم.</p>
+              ) : (
+                <p className="text-xs text-slate-400">برجاء كتابة اسم أو هاتف الطالب للبحث والتحكم في حظر الدخول.</p>
+              )}
             </div>
-            <button type="button" onClick={() => setQuizForm((p) => ({ ...p, questions: [...p.questions, emptyQuestion()] }))} className="text-sm font-bold text-red-800 dark:text-amber-400">
-              + إضافة سؤال
-            </button>
-            <button type="submit" disabled={isBusy} className="w-full bg-red-800 text-white font-extrabold rounded-xl py-3 hover:bg-red-900 disabled:opacity-60">
-              حفظ الكويز
-            </button>
-          </form>
+
+          </section>
         )}
 
-        {activeTab === "students" && (
-          <section className="grid grid-cols-1 xl:grid-cols-[22rem_minmax(0,1fr)] gap-6">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 ring-1 ring-black/5 dark:ring-white/10">
-              <div className="relative mb-4">
-                <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input value={studentSearch} onChange={(e) => setStudentSearch(e.target.value)} placeholder="بحث عن طالب..." className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pr-10 pl-3 py-2.5 text-sm outline-none" />
-              </div>
-              <div className="space-y-2 max-h-[34rem] overflow-auto">
-                {filteredStudents.map((student) => (
-                  <button key={student.uid} type="button" onClick={() => setSelectedStudentId(student.uid)} className={`w-full rounded-xl border p-3 text-right transition-colors ${selectedStudentId === student.uid ? "border-red-800 bg-red-50 dark:border-amber-400 dark:bg-amber-400/10" : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"}`}>
-                    <p className="font-bold">{student.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{student.phone}</p>
-                  </button>
-                ))}
+        {/* --- TAB 3: DETAILED STUDENT TRACKING AND PROGRESS REPORT --- */}
+        {activeTab === "student-details" && (
+          <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row items-center justify-between border-b border-slate-100 pb-4 gap-3">
+              <h2 className="text-xl font-black text-[#0077B6]">بيانات الطلاب والتتبع الدراسي التفصيلي</h2>
+              
+              {/* Select student to review */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">الطالب الحالي:</span>
+                <select
+                  value={selectedStudentId}
+                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-extrabold outline-none bg-slate-50 focus:border-[#0077B6]"
+                >
+                  {students.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.phone})</option>)}
+                </select>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 ring-1 ring-black/5 dark:ring-white/10">
-              {selectedStudent ? (
-                <div className="space-y-6">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                    <div>
-                      <h2 className="text-2xl font-extrabold">{selectedStudent.name}</h2>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{selectedStudent.email}</p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{selectedStudent.phone} · {selectedStudent.grade} · {selectedStudent.governorate}</p>
-                    </div>
-                    <button type="button" onClick={() => toggleStudentBlock(selectedStudent)} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold ${selectedStudent.isBlocked ? "bg-emerald-600 text-white" : "bg-red-700 text-white"}`}>
-                      {selectedStudent.isBlocked ? <Unlock size={16} /> : <Ban size={16} />}
-                      {selectedStudent.isBlocked ? "إلغاء الطرد" : "طرد الطالب"}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="rounded-xl bg-slate-50 dark:bg-slate-950 p-4 border border-slate-200 dark:border-slate-700">
-                      <p className="text-xs text-slate-500 dark:text-slate-400">الكورسات</p>
-                      <p className="text-2xl font-extrabold">{selectedStudent.enrolledCourses?.length || 0}</p>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 dark:bg-slate-950 p-4 border border-slate-200 dark:border-slate-700">
-                      <p className="text-xs text-slate-500 dark:text-slate-400">الدروس المكتملة</p>
-                      <p className="text-2xl font-extrabold">{Object.values(selectedStudent.progress || {}).reduce((sum, item) => sum + (item?.watchedLessons?.length || 0), 0)}</p>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 dark:bg-slate-950 p-4 border border-slate-200 dark:border-slate-700">
-                      <p className="text-xs text-slate-500 dark:text-slate-400">الحالة</p>
-                      <p className={`text-lg font-extrabold ${selectedStudent.isBlocked ? "text-red-600" : "text-emerald-600"}`}>{selectedStudent.isBlocked ? "مطرود" : "نشط"}</p>
-                    </div>
-                  </div>
-
+            {loadingDetail ? (
+              <p className="text-slate-500 font-bold text-center py-10">جارٍ جلب تفاصيل الطالب ودرجاته...</p>
+            ) : selectedStudentDetail ? (
+              <div className="space-y-6 text-right">
+                
+                {/* Profile card summary */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
                   <div>
-                    <h3 className="font-extrabold mb-3">درجات الكويزات</h3>
-                    <div className="space-y-2">
-                      {attempts.filter((attempt) => attempt.uid === selectedStudent.uid).map((attempt) => (
-                        <div key={attempt.id} className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-bold">{attempt.quizTitle}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(attempt.createdAt)}</p>
-                          </div>
-                          <span className="font-extrabold text-red-800 dark:text-amber-400">{attempt.percentage}%</span>
-                        </div>
-                      ))}
-                      {attempts.filter((attempt) => attempt.uid === selectedStudent.uid).length === 0 && <p className="text-sm text-slate-500">لا توجد درجات حتى الآن.</p>}
-                    </div>
+                    <span className="text-[10px] text-slate-400 font-bold">اسم الطالب</span>
+                    <p className="text-base font-black text-slate-900 mt-1">{selectedStudentDetail.name}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold">معرّف الطالب (7 أرقام)</span>
+                    <p className="text-base font-black text-[#0077B6] mt-1">{selectedStudentDetail.studentId || "عشوائي"}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold">الموبايل والمحافظة</span>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{selectedStudentDetail.phone} · {selectedStudentDetail.governorate}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold">الحساب</span>
+                    <p className={`text-sm font-black mt-1 ${selectedStudentDetail.isBlocked ? "text-red-600" : "text-emerald-600"}`}>
+                      {selectedStudentDetail.isBlocked ? "مطرود" : "نشط ومفعل"}
+                    </p>
                   </div>
                 </div>
-              ) : (
-                <p className="text-slate-500">اختر طالبًا لعرض التفاصيل.</p>
+
+                {/* Poor Performance Warning Notification */}
+                {selectedStudentDetail.weakPerformanceWarning && (
+                  <div className="bg-red-50 border border-red-200 text-red-800 p-5 rounded-2xl flex items-start gap-3">
+                    <AlertTriangle className="shrink-0 text-red-600" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-red-950">تنبيه: ضعف مستوى الطالب الدراسي!</h4>
+                      <p className="text-xs text-red-800 mt-1 font-bold">
+                        أحرز هذا الطالب نسبة أقل من 50% في أحد امتحاناته الأخيرة. يرجى من فريق الدعم الفني والمتابعة الاتصال بالطالب لتنبيهه بضرورة المذاكرة وقول: "لازم تشد حيلك يا بطل".
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Purchased Courses Tracker */}
+                <div>
+                  <h3 className="font-black text-base text-slate-900 mb-3">نسبة مشاهدة الكورسات وتتبع الدروس</h3>
+                  <div className="space-y-3">
+                    {selectedStudentDetail.courseProgress && selectedStudentDetail.courseProgress.map((cp) => (
+                      <div key={cp.courseId} className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+                        <div className="flex justify-between items-center text-sm font-extrabold">
+                          <span className="text-slate-900">{cp.courseTitle}</span>
+                          <span className="text-[#0077B6]">{cp.percentage}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-3">
+                          <div className="bg-[#00A8E8] h-3 rounded-full" style={{ width: `${cp.percentage}%` }} />
+                        </div>
+                        <p className="text-xs text-slate-400 font-bold">عدد الفيديوهات التي شاهدها: {cp.watchedLessonsCount} درس</p>
+                      </div>
+                    ))}
+                    {(!selectedStudentDetail.courseProgress || selectedStudentDetail.courseProgress.length === 0) && (
+                      <p className="text-xs text-slate-500">الطالب غير مشترك في أي كورسات حتى الآن.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Exam Result records */}
+                <div>
+                  <h3 className="font-black text-base text-slate-900 mb-3">سجل درجات الطالب في الامتحانات</h3>
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                    <table className="w-full text-right text-sm">
+                      <thead className="bg-slate-50 text-slate-600">
+                        <tr>
+                          <th className="px-4 py-3 font-extrabold">الامتحان</th>
+                          <th className="px-4 py-3 font-extrabold">الزمن</th>
+                          <th className="px-4 py-3 font-extrabold">الدرجة</th>
+                          <th className="px-4 py-3 font-extrabold">النسبة</th>
+                          <th className="px-4 py-3 font-extrabold">التاريخ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedStudentDetail.examResults && selectedStudentDetail.examResults.map((e, index) => (
+                          <tr key={index} className={e.percentage < 50 ? "bg-red-50/40" : "bg-white"}>
+                            <td className="px-4 py-4 font-bold text-slate-900">{e.quizTitle}</td>
+                            <td className="px-4 py-4">
+                              <span dir="ltr" className="inline-flex items-center gap-1 font-black text-slate-700">
+                                {formatDuration(e.timeSpentSeconds)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 font-black text-slate-900">
+                              {e.earnedPoints} / {e.totalPoints}
+                            </td>
+                            <td className={`px-4 py-4 font-black ${e.percentage < 50 ? "text-red-600" : "text-emerald-600"}`}>
+                              {e.percentage}%
+                            </td>
+                            <td className="px-4 py-4 text-slate-500">{formatDate(e.takenAt)}</td>
+                          </tr>
+                        ))}
+                        {(!selectedStudentDetail.examResults || selectedStudentDetail.examResults.length === 0) && (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
+                              لا توجد محاولات امتحانات مسجلة للطالب.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            ) : (
+              <p className="text-slate-500 text-center py-6">برجاء اختيار طالب من القائمة لعرض تفاصيله الدراسية.</p>
+            )}
+          </section>
+        )}
+
+        {/* --- TAB 4: INCOMING PAYMENTS REQUESTS LIST (الطلبات الواردة) --- */}
+        {activeTab === "incoming-requests" && (
+          <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm">
+            <div className="border-b border-slate-100 pb-4 mb-5">
+              <h2 className="text-xl font-black text-[#0077B6]">الطلبات الواردة (تفعيل اشتراكات الطلاب الكيميائية)</h2>
+              <p className="text-xs text-slate-400 mt-1">قم بمراجعة إثبات التحويل المرفوع من الطالب وتفعيل الكورس فوراً.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[36rem] overflow-y-auto pr-1">
+              {paymentRequests.filter(r => r.status === "pending").map((request) => (
+                <div key={request.id} className="rounded-2xl border border-cyan-100 bg-cyan-50/20 p-5 flex flex-col justify-between space-y-4">
+                  <div className="flex gap-4">
+                    <a href={request.proofImageUrl} target="_blank" rel="noreferrer" className="shrink-0 relative group">
+                      <img src={request.proofImageUrl} alt="إثبات الدفع" className="h-28 w-28 rounded-2xl object-cover border border-slate-200 hover:scale-105 transition" />
+                      <div className="absolute inset-0 bg-black/40 rounded-2xl opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] font-bold">
+                        تكبير الصورة
+                      </div>
+                    </a>
+                    <div className="min-w-0 flex-1 space-y-1 text-right">
+                      <p className="font-black text-slate-900 text-base">{request.studentName}</p>
+                      <p className="text-xs text-slate-500 font-bold">موبايل: {request.studentPhone}</p>
+                      <p className="text-sm font-extrabold text-[#0077B6] pt-1">{request.courseTitle}</p>
+                      <p className="text-xs text-slate-500 font-bold">القيمة: {request.totalPrice} ج.م · الوسيلة: {request.walletChannel}</p>
+                      <p className="text-[10px] text-slate-400">تاريخ الطلب: {formatDate(request.createdAt)}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                    <span className="bg-amber-100 text-amber-700 text-[10px] font-black px-3 py-1 rounded-full">
+                      معلق - بانتظار الاعتماد
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => approveRequest(request.id)}
+                      className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-md transition"
+                    >
+                      اعتماد وتفعيل الكورس للطالب
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {paymentRequests.filter(r => r.status === "pending").length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-10 col-span-2 font-bold">
+                  لا توجد طلبات معلقة بانتظار المراجعة والتفعيل الآن.
+                </p>
               )}
             </div>
           </section>
         )}
 
-        {activeTab === "reports" && (
-          <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 ring-1 ring-black/5 dark:ring-white/10">
-              <h2 className="text-xl font-extrabold mb-4">سجل المدفوعات</h2>
-              <div className="space-y-2 max-h-[32rem] overflow-auto">
-                {payments.map((payment) => (
-                  <div key={payment.id} className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-bold">{payment.studentName}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{payment.courseTitle}</p>
+        {/* --- TAB 5: ADD COURSE FORM (Sequential FIFO builder) --- */}
+        {activeTab === "add-course" && (
+          <section className="grid grid-cols-1 xl:grid-cols-[1fr_24rem] gap-6">
+            
+            {/* Create course settings form */}
+            <div className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-5 text-right">
+              <h3 className="text-lg font-black text-[#0077B6] border-b border-slate-100 pb-2">
+                {editingCourseId ? "تعديل بيانات الكورس" : "خطوة 1: تهيئة الكورس الأساسي"}
+              </h3>
+              <form onSubmit={submitCourse} className="space-y-4">
+                <input
+                  required
+                  value={courseForm.title}
+                  onChange={(e) => setCourseForm((p) => ({ ...p, title: e.target.value }))}
+                  placeholder="اسم الكورس التعليمي (مثال: الباب الأول في الكيمياء)"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#0077B6]"
+                />
+                
+                <textarea
+                  value={courseForm.description}
+                  onChange={(e) => setCourseForm((p) => ({ ...p, description: e.target.value }))}
+                  placeholder="وصف مبسط للكورس ومحتوياته..."
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-[#0077B6]"
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">الصف الدراسي</label>
+                    <select
+                      value={courseForm.grade}
+                      onChange={(e) => setCourseForm((p) => ({ ...p, grade: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6]"
+                    >
+                      <option>الصف الأول الثانوي</option>
+                      <option>الصف الثاني الثانوي</option>
+                      <option>الصف الثالث الثانوي</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">السعر (ج.م)</label>
+                    <input
+                      disabled={courseForm.isFree}
+                      type="number"
+                      min="0"
+                      value={courseForm.price}
+                      onChange={(e) => setCourseForm((p) => ({ ...p, price: e.target.value }))}
+                      placeholder="السعر بالجنيه"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">الخصم (%)</label>
+                    <input
+                      disabled={courseForm.isFree}
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={courseForm.discountPercent}
+                      onChange={(e) => setCourseForm((p) => ({ ...p, discountPercent: e.target.value }))}
+                      placeholder="خصم الكورس"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-5 py-2">
+                  <label className="inline-flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={courseForm.isFree}
+                      onChange={(e) => setCourseForm(p => ({ ...p, isFree: e.target.checked, price: e.target.checked ? "0" : "" }))}
+                      className="w-4 h-4 text-[#0077B6]"
+                    />
+                    هذا الكورس مجاني بالكامل
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={courseForm.isPublished}
+                      onChange={(e) => setCourseForm(p => ({ ...p, isPublished: e.target.checked }))}
+                      className="w-4 h-4 text-[#0077B6]"
+                    />
+                    نشر الكورس مباشرة للطلاب
+                  </label>
+                </div>
+
+                {editingCourseId && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
+                    أنت الآن في وضع تعديل الكورس الحالي. عند الحفظ سيتم تحديثه مباشرة.
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-500">غلاف الكورس:</label>
+                  <label className="flex items-center justify-center gap-2 cursor-pointer border border-dashed border-slate-300 rounded-xl px-4 py-4 bg-slate-50 hover:border-[#0077B6] transition">
+                    <Upload size={16} />
+                    <span className="text-xs font-bold">{isUploadingImage ? "جاري رفع الغلاف..." : "اختر صورة الغلاف"}</span>
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                  </label>
+                </div>
+
+                <button type="submit" disabled={isBusy} className="w-full bg-[#FF6B35] hover:bg-orange-600 text-white font-extrabold rounded-xl py-3 text-sm shadow-md transition">
+                  {isBusy ? "جاري الحفظ..." : editingCourseId ? "حفظ التعديلات" : "حفظ الكورس وفتح خيارات إضافة المحتوى"}
+                </button>
+              </form>
+            </div>
+
+            {/* Left side sequential additions (FIFO Order) */}
+            <div className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-6 text-right">
+              <div className="border-b border-slate-100 pb-3">
+                <h3 className="text-lg font-black text-[#0077B6]">خطوة 2: إضافة دروس بالترتيب FIFO</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">تضاف العناصر بالترتيب الذي تختاره للمنهج، الأحدث تحت والأقدم فوق.</p>
+              </div>
+
+              {/* Course Selector to receive contents */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-500">الكورس المراد إضافة المحاضرة إليه:</label>
+                <select
+                  value={selectedCourseForItems}
+                  onChange={(e) => setSelectedCourseForItems(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-extrabold outline-none bg-slate-50 focus:border-[#0077B6]"
+                >
+                  {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </select>
+              </div>
+
+              {currentSelectedCourseObj ? (
+                <div className="space-y-6">
+                  
+                  {/* Part 1: Add Video Lesson (1-Click Upload or URL) */}
+                  <form onSubmit={handleAddLesson} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/40 space-y-3">
+                    <h4 className="font-extrabold text-xs text-[#0077B6] flex items-center gap-1.5">
+                      <BookOpen size={14} /> إضافة محاضرة فيديو جديدة
+                    </h4>
+                    <input
+                      required
+                      value={lessonForm.title}
+                      onChange={(e) => setLessonForm(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="عنوان محاضرة الفيديو..."
+                      className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white outline-none"
+                    />
+
+                    {/* Toggle: Direct Upload vs Link */}
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setVideoInputMode('upload')}
+                        className={`flex-1 py-1.5 text-xs font-bold transition ${videoInputMode === 'upload' ? 'bg-[#0077B6] text-white' : 'bg-white text-slate-500'}`}
+                      >
+                        رفع MP4 مباشر
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoInputMode('url')}
+                        className={`flex-1 py-1.5 text-xs font-bold transition ${videoInputMode === 'url' ? 'bg-[#0077B6] text-white' : 'bg-white text-slate-500'}`}
+                      >
+                        من رابط MP4 / YouTube
+                      </button>
                     </div>
-                    <div className="text-left">
-                      <p className="font-bold">{payment.amount} ج.م</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{payment.status}</p>
+
+                    {videoInputMode === 'upload' ? (
+                      <div className="space-y-3">
+                        {lessonForm.videoUrl && (
+                          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                            <span className="text-xs font-bold text-emerald-700">✓ تم تجهيز الفيديو بنجاح</span>
+                          </div>
+                        )}
+
+                        {isUploadingVideo && (
+                          <div className="p-4 rounded-xl bg-cyan-50 border border-cyan-200 space-y-2">
+                            <div className="flex justify-between items-center text-xs font-extrabold text-[#0077B6]">
+                              <span>
+                                {`📤 جارٍ رفع الفيديو إلى السيرفر... (${videoUploadProgress}%)`}
+                              </span>
+                              <span>{videoUploadProgress}%</span>
+                            </div>
+                            <div className="w-full h-3 bg-cyan-100 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-[#0077B6] to-[#00A8E8] transition-all duration-300 rounded-full"
+                                style={{ width: `${Math.max(videoUploadProgress, 5)}%` }}
+                              />
+                            </div>
+                              <p className="text-[10px] text-slate-500 text-center font-medium">
+                              سيتم تأكيد النجاح فقط بعد اكتمال رفع الملف واستجابة الخادم
+                            </p>
+                          </div>
+                        )}
+
+                        <label className={`flex flex-col items-center justify-center gap-2 cursor-pointer border-2 border-dashed border-[#0077B6]/30 hover:border-[#0077B6] rounded-xl px-4 py-5 bg-white transition ${isUploadingVideo ? 'opacity-50 pointer-events-none' : ''}`}>
+                          <Upload size={24} className="text-[#0077B6]" />
+                          <span className="text-xs font-extrabold text-slate-700">
+                            {isUploadingVideo ? '⏳ جارٍ الرفع...' : 'اختر ملف MP4 من جهازك'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">سيتم رفع الملف مباشرة إلى Archive.org بعد اكتمال النقل</span>
+                          <input
+                            type="file"
+                            accept="video/mp4,.mp4"
+                            disabled={isUploadingVideo}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setIsUploadingVideo(true);
+                              setVideoUploadProgress(0);
+                              setError('');
+                              try {
+                                const formData = new FormData();
+                                formData.append('file', file);
+                                formData.append('title', lessonForm.title || file.name);
+                                if (currentSelectedCourseObj?.id) {
+                                  formData.append('courseId', currentSelectedCourseObj.id);
+                                }
+
+                                const { data } = await apiClient.post('/api/v1/videos/upload', formData, {
+                                  timeout: 600000, // 10 minutes — processing takes time
+                                  headers: { 'Content-Type': 'multipart/form-data' },
+                                  onUploadProgress: (progressEvent) => {
+                                    if (progressEvent.total) {
+                                      const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                                      setVideoUploadProgress(percent);
+                                    }
+                                  },
+                                });
+
+                                setLessonForm(prev => ({
+                                  ...prev,
+                                  videoUrl: data.directUrl || data.videoUrl || data.url || "",
+                                  title: prev.title || data.title
+                                }));
+                                setNotice('✓ تم رفع الفيديو المباشر بنجاح!');
+                              } catch (err) {
+                                const errorMsg = err?.response?.data?.error || err?.response?.data?.message || err?.response?.data?.details || err?.message || 'فشل رفع الفيديو.';
+                                setErrorMessage(errorMsg);
+                              } finally {
+                                setIsUploadingVideo(false);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                        <input
+                          required={videoInputMode === 'url'}
+                          value={lessonForm.videoUrl}
+                          onChange={(e) => setLessonForm(prev => ({ ...prev, videoUrl: e.target.value }))}
+                        placeholder="رابط MP4 مباشر أو YouTube..."
+                          className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white outline-none"
+                        />
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={isBusy || isUploadingVideo || !lessonForm.videoUrl}
+                      className="w-full py-2 bg-[#0077B6] text-white font-extrabold text-xs rounded-lg transition hover:bg-[#005f92] disabled:opacity-50"
+                    >
+                      إضافة الدرس للمنهج (FIFO ترتيب: {nextItemOrder})
+                    </button>
+                  </form>
+
+                  {/* Part 2: Add PDF resource */}
+                  <form onSubmit={handleAddFile} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/40 space-y-3">
+                    <h4 className="font-extrabold text-xs text-[#0077B6] flex items-center gap-1.5">
+                      <FileText size={14} /> إضافة ملخص/ملف PDF
+                    </h4>
+                    <input
+                      required
+                      value={fileForm.title}
+                      onChange={(e) => setFileForm(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="عنوان الملزمة أو الواجب..."
+                      className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white outline-none"
+                    />
+
+                    {/* Toggle source: URL or Device */}
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setFileInputMode('url')}
+                        className={`flex-1 py-1.5 text-xs font-bold transition ${fileInputMode === 'url' ? 'bg-[#0077B6] text-white' : 'bg-white text-slate-500'}`}
+                      >
+                        من رابط
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFileInputMode('device')}
+                        className={`flex-1 py-1.5 text-xs font-bold transition ${fileInputMode === 'device' ? 'bg-[#0077B6] text-white' : 'bg-white text-slate-500'}`}
+                      >
+                        من الجهاز
+                      </button>
+                    </div>
+
+                    {fileInputMode === 'url' ? (
+                      <input
+                        required={fileInputMode === 'url'}
+                        value={fileForm.fileUrl}
+                        onChange={(e) => setFileForm(prev => ({ ...prev, fileUrl: e.target.value }))}
+                        placeholder="رابط ملف الـ PDF (رابط ويب)"
+                        className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white outline-none"
+                      />
+                    ) : (
+                      <div className="space-y-2">
+                        {fileForm.fileUrl && (
+                          <p className="text-[10px] text-emerald-600 font-bold">✓ تم رفع الملف بنجاح</p>
+                        )}
+                        <label className="flex items-center justify-center gap-2 cursor-pointer border border-dashed border-slate-300 rounded-lg px-4 py-3 bg-white hover:border-[#0077B6] transition">
+                          <Upload size={14} />
+                          <span className="text-xs font-bold">
+                            {isUploadingFile ? 'جارٍ الرفع...' : 'اختر ملف PDF من جهازك'}
+                          </span>
+                          <input
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            disabled={isUploadingFile}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setIsUploadingFile(true);
+                              try {
+                                const url = await uploadFileToStorage(file);
+                                setFileForm(prev => ({ ...prev, fileUrl: url, fileName: file.name, fileType: 'pdf' }));
+                                setNotice('تم رفع ملف PDF بنجاح!');
+                              } catch {
+                                setErrorMessage('فشل رفع الملف. تأكد من الاتصال وحاول مرة أخرى.');
+                              } finally {
+                                setIsUploadingFile(false);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={isBusy || isUploadingFile || !fileForm.fileUrl}
+                      className="w-full py-2 bg-[#0077B6] text-white font-extrabold text-xs rounded-lg transition hover:bg-[#005f92] disabled:opacity-50"
+                    >
+                      إضافة الملزمة للمنهج (FIFO ترتيب: {nextItemOrder})
+                    </button>
+                  </form>
+
+                  {/* Part 3: Add Quiz - Button only, details on dedicated page */}
+                  <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/40 space-y-3">
+                    <h4 className="font-extrabold text-xs text-[#0077B6] flex items-center gap-1.5">
+                      <HelpCircle size={14} /> إضافة كويز MCQ
+                    </h4>
+                    <p className="text-[10px] text-slate-400 leading-5">
+                      لإضافة كويز بأسئلة متكاملة، افتح صفحة الإضافة التفصيلية واملأ الأسئلة والإجابات والوقت.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/teacher/add-quiz?courseId=${currentSelectedCourseObj?.id || ''}`)}
+                      className="w-full py-2.5 bg-[#0077B6] text-white font-extrabold text-xs rounded-lg transition hover:bg-[#005f92]"
+                    >
+                      فتح صفحة إضافة الكويز التفصيلية
+                    </button>
+                  </div>
+
+                  <div className="p-4 rounded-2xl border border-slate-100 bg-white space-y-3">
+                    <h4 className="font-extrabold text-xs text-[#0077B6] flex items-center gap-1.5">
+                      <FileSpreadsheet size={14} /> إدارة محتوى الكورس
+                    </h4>
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {currentSelectedCourseContent.length === 0 ? (
+                        <p className="text-[11px] text-slate-400">لا يوجد محتوى مضاف بعد.</p>
+                      ) : currentSelectedCourseContent.map((item) => (
+                        <div key={`${item.type}-${item.lessonId || item.resourceId || item.quizId}`} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-extrabold text-slate-800 truncate">{item.title}</p>
+                            <p className="text-[10px] text-slate-400">
+                              {item.type === "video" ? "محاضرة" : item.type === "resource" ? "PDF" : "كويز"}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!confirm("هل تريد حذف هذا العنصر نهائياً؟")) return;
+                              setIsBusy(true);
+                              try {
+                                if (item.type === "video") {
+                                  await removeLessonItem(item.lessonId);
+                                } else if (item.type === "resource") {
+                                  await removeResourceItem(item.resourceId);
+                                } else if (item.type === "quiz") {
+                                  await removeQuizItem(item.quizId);
+                                }
+                                setNotice("تم حذف العنصر بنجاح.");
+                              } catch (err) {
+                                setErrorMessage(err.message || "تعذر حذف العنصر.");
+                              } finally {
+                                setIsBusy(false);
+                              }
+                            }}
+                            className={`${isTeacher ? "" : "hidden "}rounded-lg p-2 text-red-600 hover:bg-red-50 transition`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
+
+                </div>
+              ) : (
+                <p className="text-xs text-red-500 font-bold">برجاء إنشاء كورس أولاً لإضافة المكونات إليه.</p>
+              )}
             </div>
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 ring-1 ring-black/5 dark:ring-white/10">
-              <h2 className="text-xl font-extrabold mb-4">آخر درجات الكويزات</h2>
-              <div className="space-y-2 max-h-[32rem] overflow-auto">
-                {attempts.map((attempt) => (
-                  <div key={attempt.id} className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-bold">{attempt.quizTitle}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{attempt.uid}</p>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-extrabold">{attempt.earnedPoints}/{attempt.totalPoints}</p>
-                      <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 size={12} />{attempt.percentage}%</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+
           </section>
         )}
+
+        {/* --- TAB 6: ADD EXAM ENTRY --- */}
+        {activeTab === "add-exam" && (
+          <section className="bg-white dark:bg-slate-900 border border-cyan-100 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-5 text-right">
+            <div className="rounded-3xl bg-gradient-to-l from-[#0077B6] to-[#00A8E8] p-6 text-white">
+              <h2 className="text-2xl font-black">إضافة امتحان جديد</h2>
+              <p className="mt-2 text-sm text-white/75">
+                الامتحانات الآن صفحة مستقلة: صورة اختيارية، كورس اختياري، وعدد أسئلة مفتوح بالكامل.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/teacher/add-exam")}
+              className="w-full rounded-2xl bg-[#FF6B35] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:bg-orange-600"
+            >
+              فتح صفحة إضافة الامتحان التفصيلية
+            </button>
+          </section>
+        )}
+
+        {/* Legacy inline exam builder kept disabled after moving exams to a standalone page. */}
+        {false && activeTab === "add-exam" && (
+          <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-6 text-right">
+            <div className="border-b border-slate-100 pb-3">
+              <h2 className="text-xl font-black text-[#0077B6]">إضافة امتحان جديد بالكامل (MCQ Exam Generator)</h2>
+              <p className="text-xs text-slate-400 mt-1">اكتب أسئلة الامتحان وحدد درجاتها وإجاباتها النموذجية ليتم تصحيحها تلقائياً.</p>
+            </div>
+
+            <form onSubmit={submitExam} className="space-y-6">
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">اضافه إلى الكورس:</label>
+                  <select
+                    value={examForm.courseId}
+                    onChange={(e) => setExamForm(p => ({ ...p, courseId: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-xs outline-none bg-slate-50 focus:border-[#0077B6]"
+                  >
+                    {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">اسم الامتحان:</label>
+                  <input
+                    required
+                    value={examForm.title}
+                    onChange={(e) => setExamForm(p => ({ ...p, title: e.target.value }))}
+                    placeholder="مثال: امتحان شامل الباب الأول كيمياء"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-xs outline-none bg-slate-50 focus:border-[#0077B6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">عدد أسئلة الامتحان:</label>
+                  <select
+                    value={examForm.questionsCount}
+                    onChange={(e) => {
+                      const count = Number(e.target.value);
+                      setExamForm(p => ({
+                        ...p,
+                        questionsCount: count,
+                        questions: Array.from({ length: count }, (_, i) => p.questions[i] || emptyQuestion())
+                      }));
+                    }}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-xs outline-none bg-slate-50 focus:border-[#0077B6]"
+                  >
+                    {[3, 5, 10, 15, 20, 25, 30].map(n => <option key={n} value={n}>{n} أسئلة</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Questions Sheet list */}
+              <div className="space-y-6 pt-4">
+                <h3 className="font-extrabold text-sm text-[#0077B6] border-b border-slate-50 pb-2">تفاصيل ورقة الأسئلة MCQ:</h3>
+                
+                {examForm.questions.map((q, qIdx) => (
+                  <div key={qIdx} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-black text-slate-700">السؤال رقم {qIdx + 1}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400">نقاط السؤال:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={q.points}
+                          onChange={(e) => updateExamQuestion(qIdx, "points", Number(e.target.value))}
+                          className="w-12 text-center rounded border border-slate-300 py-1 text-xs bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <input
+                      required
+                      value={q.prompt}
+                      onChange={(e) => updateExamQuestion(qIdx, "prompt", e.target.value)}
+                      placeholder="اكتب نص السؤال هنا..."
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs outline-none focus:border-[#0077B6]"
+                    />
+
+                    {/* MCQ Options with radio correction */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {q.choices.map((choice, cIdx) => (
+                        <div key={cIdx} className="flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-slate-200">
+                          <input
+                            type="radio"
+                            name={`correct_choice_${qIdx}`}
+                            checked={q.correctIndex === cIdx}
+                            onChange={() => updateExamQuestion(qIdx, "correctIndex", cIdx)}
+                          />
+                          <span className="text-xs font-bold text-slate-400">
+                            {["أ", "ب", "ج", "د"][cIdx]} :
+                          </span>
+                          <input
+                            required
+                            value={choice}
+                            onChange={(e) => updateExamChoice(qIdx, cIdx, e.target.value)}
+                            placeholder={`الخيار ${["أ", "ب", "ج", "د"][cIdx]}`}
+                            className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="submit"
+                disabled={isBusy}
+                className="w-full bg-[#FF6B35] hover:bg-orange-600 text-white font-extrabold py-3.5 rounded-2xl shadow-lg transition"
+              >
+                {isBusy ? "جاري الحفظ..." : "حفظ وإنشاء الامتحان الشامل"}
+              </button>
+
+            </form>
+          </section>
+        )}
+
       </div>
     </DashboardLayout>
   );
