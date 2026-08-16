@@ -15,6 +15,10 @@ export default function SecurityGuard() {
   const [blurred, setBlurred] = useState(false);
 
   useEffect(() => {
+    // استثناء الموبايل والتابلت لمنع إغلاق الشاشة بالخطأ بسبب أبعاد متصفحات الهواتف
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) return;
+
     function blockContextMenu(event) {
       event.preventDefault();
     }
@@ -64,7 +68,9 @@ export default function SecurityGuard() {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 backdrop-blur-xl text-white">
       <div className="rounded-2xl border border-cyan-300/30 bg-white/10 px-6 py-5 text-center shadow-2xl">
         <p className="text-lg font-extrabold">تم إيقاف العرض مؤقتًا</p>
-        <p className="mt-1 text-sm text-cyan-100">حماية محتوى منصة الدكتور مينا موريد</p>
+        <p className="mt-1 text-sm text-cyan-100">
+          حماية محتوى منصة الدكتور مينا موريد
+        </p>
       </div>
     </div>
   );
