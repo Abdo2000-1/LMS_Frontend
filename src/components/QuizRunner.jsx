@@ -1,8 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowRight, CheckCircle2, Clock3, Send, ShieldAlert, Award, FileQuestion, HelpCircle, Check, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  Send,
+  ShieldAlert,
+  Award,
+  FileQuestion,
+  HelpCircle,
+  Check,
+  X,
+  Sparkles,
+  Loader2,
+  BookOpen,
+  Timer,
+  AlertCircle
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { evaluateEssayAi } from "../services/essayService.js";
 
 function formatTime(seconds) {
   const safeSeconds = Math.max(0, Number(seconds) || 0);
@@ -22,7 +40,7 @@ function formatDateTime(value) {
 }
 
 function getDraftKey(courseId, quizId) {
-  return `quiz_draft_${courseId}_${quizId}`;
+  return `quiz_draft_${courseId || "direct"}_${quizId}`;
 }
 
 function readDraft(draftKey) {
@@ -50,17 +68,36 @@ function clearDraft(draftKey) {
 
 export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false }) {
   const { courseId } = useParams();
+  const navigate = useNavigate();
   const { user, refreshProfile } = useAuth();
 
-  const questions = useMemo(() => Array.isArray(quiz?.questions) ? quiz.questions : [], [quiz?.questions]);
-  const isExam = Boolean(quiz?.isMandatory);
+  const handleBackToCourse = () => {
+    if (typeof onExit === "function") {
+      onExit();
+    } else {
+      navigate(courseId ? `/courses/${courseId}` : "/courses");
+    }
+  };
+
+  // Normalize questions with guaranteed IDs and points
+  const questions = useMemo(() => {
+    if (!Array.isArray(quiz?.questions)) return [];
+    return quiz.questions.map((q, idx) => ({
+      ...q,
+      questionId: q.questionId || q.id || `q_${idx}`,
+      type: q.type || (q.choices && q.choices.length > 0 ? "mcq" : "essay"),
+      points: Number(q.points || 1),
+      choices: Array.isArray(q.choices) ? q.choices : [],
+    }));
+  }, [quiz?.questions]);
 
   // Attempt records for the current user
   const previousAttempt = useMemo(() => {
-    return user?.quizResults?.[courseId]?.[quiz?.quizId];
+    const cid = courseId || "direct";
+    return user?.quizResults?.[cid]?.[quiz?.quizId] || user?.quizResults?.[quiz?.quizId];
   }, [user?.quizResults, courseId, quiz?.quizId]);
 
-  const [attemptState, setAttemptState] = useState("table"); // "table" | "running" | "result"
+  const [attemptState, setAttemptState] = useState("table"); // "intro" | "table" | "running" | "result"
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [visitedQuestions, setVisitedQuestions] = useState(new Set());
@@ -71,7 +108,11 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
   const [reviewMode, setReviewMode] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
 
-  // Set initial state based on previous attempts
+  // Progressive AI essay evaluations state
+  const [essayEvaluations, setEssayEvaluations] = useState({});
+  const [evaluatingEssayIds, setEvaluatingEssayIds] = useState(new Set());
+
+  // Set initial state based on previous attempts, without overwriting active results/reviews
   useEffect(() => {
     const draftKey = getDraftKey(courseId, quiz?.quizId);
     let foundDraft = false;
@@ -81,23 +122,21 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
     } catch {}
     setHasDraft(foundDraft);
     setSubmitError("");
-    setResult(null);
-    setReviewMode(false);
-    setIsSubmitting(false);
 
-    if (previousAttempt) {
-      setAttemptState("table");
-    } else {
-      setAttemptState("intro");
-    }
+    // Do NOT interrupt if the user is in reviewMode, result, or running
+    setAttemptState((current) => {
+      if (current === "result" || current === "running") return current;
+      if (previousAttempt) return "table";
+      return "intro";
+    });
 
-    if (!foundDraft) {
+    if (!foundDraft && attemptState !== "result" && attemptState !== "running") {
       setAnswers({});
       setVisitedQuestions(new Set());
       setCurrentIndex(0);
       setTimeLeft((quiz?.minutes || 10) * 60);
     }
-  }, [quiz?.quizId, previousAttempt, questions, courseId, quiz?.minutes]);
+  }, [quiz?.quizId, previousAttempt, courseId, quiz?.minutes]);
 
   useEffect(() => {
     if (attemptState !== "running") return undefined;
@@ -110,58 +149,26 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
     return undefined;
   }, [answers, timeLeft, currentIndex, attemptState, courseId, quiz?.quizId]);
 
-  // Track visited questions
+  // Timer countdown
   useEffect(() => {
-    if (attemptState === "running" && questions[currentIndex]) {
-      setVisitedQuestions((prev) => {
-        const next = new Set(prev);
-        next.add(questions[currentIndex].questionId);
-        return next;
-      });
-    }
-  }, [currentIndex, attemptState, questions]);
+    if (attemptState !== "running") return undefined;
 
-  // Timer logic
-  useEffect(() => {
-    if (attemptState !== "running" || timeLeft <= 0) return undefined;
-
-    const timer = window.setInterval(() => {
-      setTimeLeft((value) => {
-        if (value <= 1) {
-          window.clearInterval(timer);
-          void autoSubmit();
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          autoSubmit();
           return 0;
         }
-        return value - 1;
+        return prev - 1;
       });
     }, 1000);
 
-    return () => window.clearInterval(timer);
-  }, [attemptState, timeLeft]);
+    return () => clearInterval(timer);
+  }, [attemptState]);
 
-  const currentQuestion = questions[currentIndex] || null;
-  const totalDurationSeconds = Math.max(1, (Number(quiz?.minutes || 10) || 10) * 60);
-  const timeSpentSeconds = Math.max(0, totalDurationSeconds - timeLeft);
-
-  // Stats calculation
-  const solvedCount = useMemo(() => {
-    return Object.keys(answers).filter((key) => answers[key] !== undefined && answers[key] !== null).length;
-  }, [answers]);
-
-  const openedCount = visitedQuestions.size;
-  const unsolvedCount = Math.max(0, openedCount - solvedCount);
-  const introWrapperClass = embedded
-    ? "w-full bg-[#F8FAFC] dark:bg-slate-950 px-0 py-0 font-['Cairo',_sans-serif]"
-    : "fixed inset-0 z-[100] bg-[#F8FAFC] dark:bg-slate-950 flex items-center justify-center px-4 font-['Cairo',_sans-serif]";
-  const tableWrapperClass = embedded
-    ? "w-full bg-[#F8FAFC] dark:bg-slate-950 overflow-y-auto px-0 py-0 font-['Cairo',_sans-serif]"
-    : "fixed inset-0 z-[100] bg-[#F8FAFC] dark:bg-slate-950 overflow-y-auto px-4 py-8 font-['Cairo',_sans-serif]";
-  const runningWrapperClass = embedded
-    ? "w-full bg-[#F8FAFC] dark:bg-slate-950 overflow-y-auto px-0 py-0 font-['Cairo',_sans-serif]"
-    : "fixed inset-0 z-[100] bg-[#F8FAFC] dark:bg-slate-950 overflow-y-auto px-4 py-6 font-['Cairo',_sans-serif]";
-  const resultWrapperClass = embedded
-    ? "w-full bg-[#F8FAFC] dark:bg-slate-950 overflow-y-auto px-0 py-0 font-['Cairo',_sans-serif]"
-    : "fixed inset-0 z-[100] bg-[#F8FAFC] dark:bg-slate-950 overflow-y-auto px-4 py-8 font-['Cairo',_sans-serif]";
+  const currentQuestion = questions[currentIndex];
+  const timeSpentSeconds = (quiz?.minutes || 10) * 60 - timeLeft;
 
   async function autoSubmit() {
     await handleSubmit();
@@ -172,16 +179,24 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
     setSubmitError("");
     setIsSubmitting(true);
     try {
-      const quizResult = await onSubmit?.(answers, timeSpentSeconds);
-      await refreshProfile?.();
-      clearDraft(getDraftKey(courseId, quiz?.quizId));
+      const submittedAnswers = { ...answers };
+
+      // Submit to backend (which runs Gemini AI grading)
+      const quizResult = await onSubmit?.(submittedAnswers, timeSpentSeconds);
+      
       setResult({
         ...(quizResult || {}),
+        answers: submittedAnswers,
+        textAnswers: submittedAnswers,
         timeSpentSeconds: quizResult?.timeSpentSeconds ?? timeSpentSeconds,
         createdAt: quizResult?.createdAt || new Date().toISOString(),
+        evaluations: quizResult?.evaluations || {},
       });
+
       setAttemptState("result");
       setReviewMode(true);
+      clearDraft(getDraftKey(courseId, quiz?.quizId));
+      await refreshProfile?.();
     } catch (err) {
       console.error(err);
       setSubmitError(err?.message || "تعذر إنهاء الاختبار. تأكد من الاتصال وحاول مرة أخرى.");
@@ -192,7 +207,6 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
 
   function handleExitLater() {
     setSubmitError("");
-    // Save draft answers/state to sessionStorage for later resumption
     const draftKey = getDraftKey(courseId, quiz?.quizId);
     writeDraft(draftKey, {
       answers,
@@ -201,7 +215,7 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
     });
     setHasDraft(true);
     setAttemptState("table");
-    onExit?.();
+    handleBackToCourse();
   }
 
   function startExamNew() {
@@ -226,18 +240,7 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
     setAttemptState("running");
     setReviewMode(false);
     setHasDraft(false);
-  }
-
-  function startExamFresh() {
-    const draftKey = getDraftKey(courseId, quiz?.quizId);
-    clearDraft(draftKey);
-    setAnswers({});
-    setVisitedQuestions(new Set(questions[0] ? [questions[0].questionId] : []));
-    setCurrentIndex(0);
-    setTimeLeft((quiz?.minutes || 10) * 60);
-    setAttemptState("running");
-    setReviewMode(false);
-    setHasDraft(false);
+    setEssayEvaluations({});
   }
 
   function goPrevious() {
@@ -248,174 +251,37 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
     setCurrentIndex((idx) => Math.min(questions.length - 1, idx + 1));
   }
 
-  // --- 0. RENDER DRAFT CHOICE SCREEN ---
-  if (attemptState === "intro" && !previousAttempt) {
-    return (
-      <div className={introWrapperClass}>
-        <div className={`w-full bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-xl shadow-cyan-900/5 dark:shadow-slate-950/40 border border-slate-200 dark:border-slate-800 text-center space-y-4 text-right ${embedded ? "" : "max-w-md"}`}>
-          <div className="w-14 h-14 rounded-full bg-[#0077B6]/10 dark:bg-[#00A8E8]/10 flex items-center justify-center mx-auto">
-            <span className="text-2xl text-[#0077B6] dark:text-[#00A8E8]">?</span>
-          </div>
-          <h2 className="text-xl font-black text-[#0077B6] dark:text-[#00A8E8]">{quiz?.title || "الاختبار"}</h2>
-          <div className="grid grid-cols-2 gap-3 text-sm font-bold text-slate-600 dark:text-slate-300">
-            <div className="rounded-2xl bg-slate-50 dark:bg-slate-800 p-3">
-              <div className="text-[#0077B6] text-lg font-black">{questions.length}</div>
-              <div>عدد الأسئلة</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 dark:bg-slate-800 p-3">
-              <div className="text-[#0077B6] text-lg font-black">{quiz?.minutes || 10}</div>
-              <div>الدقائق</div>
-            </div>
-          </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 font-bold leading-relaxed">
-            اضغط ابدأ للدخول للاختبار. يمكن حفظ التقدم والعودة لاحقًا إذا تم استخدام زر "استكمال لاحقًا".
-          </p>
-          {hasDraft && (
-            <div className="rounded-2xl border border-[#FF6B35]/25 bg-[#FF6B35]/10 px-4 py-3 text-sm font-bold text-[#FF6B35] dark:text-[#FFB08F]">
-              لديك محاولة محفوظة يمكنك استكمالها الآن أو بدء محاولة جديدة.
-            </div>
-          )}
-          <div className="space-y-2 pt-2">
-            {hasDraft ? (
-              <>
-                <button
-                  type="button"
-                  onClick={startExamNew}
-                  className="w-full py-3 bg-[#0077B6] hover:bg-[#005f92] dark:bg-[#00A8E8] dark:hover:bg-[#0077B6] text-white font-extrabold rounded-2xl shadow-md transition-colors"
-                >
-                  استكمال المحاولة السابقة
-                </button>
-                <button
-                  type="button"
-                  onClick={startExamFresh}
-                  className="w-full py-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold rounded-2xl transition-colors"
-                >
-                  بدء من جديد
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={startExamFresh}
-                className="w-full py-3 bg-[#0077B6] hover:bg-[#005f92] dark:bg-[#00A8E8] dark:hover:bg-[#0077B6] text-white font-extrabold rounded-2xl shadow-md transition-colors"
-              >
-                ابدأ الامتحان / الكويز
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => { setHasDraft(false); onExit?.(); }}
-              className="w-full py-2.5 text-slate-400 dark:text-slate-500 text-sm font-bold rounded-2xl hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-            >
-              العودة للمنهج
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const runningWrapperClass = embedded
+    ? "w-full bg-white dark:bg-slate-950 overflow-y-auto px-0 py-0 font-['Cairo',_sans-serif]"
+    : "fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md overflow-y-auto px-4 py-6 font-['Cairo',_sans-serif] flex items-center justify-center";
+  const resultWrapperClass = embedded
+    ? "w-full bg-white dark:bg-slate-950 overflow-y-auto px-0 py-0 font-['Cairo',_sans-serif]"
+    : "fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md overflow-y-auto px-4 py-8 font-['Cairo',_sans-serif] flex items-center justify-center";
 
-  // --- 1. RENDER PREVIOUS ATTEMPT TABLE ---
-  if (attemptState === "table" && previousAttempt) {
-    return (
-      <div className={tableWrapperClass}>
-        <div className={`mx-auto space-y-6 ${embedded ? "w-full" : "max-w-2xl"}`}>
-          <div className="text-center bg-[#0077B6] dark:bg-[#00A8E8] text-white py-4 px-6 rounded-2xl shadow-md">
-            <h1 className="text-lg sm:text-xl font-bold">
-              {quiz?.title || "امتحان المادة"}
-            </h1>
-            <p className="text-xs opacity-90 mt-1">كورس الكيمياء للدكتور مينا موريد</p>
-          </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-xl shadow-cyan-900/5 dark:shadow-slate-950/40 border border-slate-200 dark:border-slate-800 overflow-hidden text-right">
-            <h2 className="text-lg font-bold mb-4 text-[#0077B6] dark:text-[#00A8E8]">تفاصيل محاولتك السابقة:</h2>
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-center border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-bold border-b border-slate-200 dark:border-slate-700">
-                    <th className="px-4 py-3">الدرجة</th>
-                    <th className="px-4 py-3">الزمن المستغرق</th>
-                    <th className="px-4 py-3">التاريخ</th>
-                    <th className="px-4 py-3">النسبة</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
-                  <tr>
-                    <td className="px-4 py-4 text-chem-cta text-lg">
-                      <span dir="ltr" className="inline-flex items-center gap-1 text-[#FF6B35] dark:text-[#FFB08F]">
-                        {previousAttempt.earnedPoints} / {previousAttempt.totalPoints}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-slate-500">
-                      <span dir="ltr" className="inline-flex items-center gap-1 text-[#0077B6] dark:text-[#00A8E8]">
-                        {formatTime(previousAttempt.timeSpentSeconds || 0)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-slate-500">{formatDateTime(previousAttempt.updatedAt || previousAttempt.takenAt)}</td>
-                    <td className="px-4 py-4 text-slate-500 dark:text-slate-300">{previousAttempt.percentage}%</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
-            {!isExam && (
-              <button
-                type="button"
-                onClick={startExamNew}
-                className="w-full sm:w-auto px-8 py-3 bg-[#FF6B35] hover:bg-[#e05621] dark:bg-[#FF6B35] dark:hover:bg-[#ff7d49] text-white font-extrabold rounded-2xl shadow-lg shadow-orange-500/20 transition-all duration-200"
-              >
-                إعادة الكويز
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setAnswers({});
-                setResult(previousAttempt);
-                setAttemptState("result");
-                setReviewMode(true);
-              }}
-              className="w-full sm:w-auto px-8 py-3 bg-[#0077B6] hover:bg-[#005f92] dark:bg-[#00A8E8] dark:hover:bg-[#0077B6] text-white font-extrabold rounded-2xl shadow-lg shadow-blue-500/20 transition-all duration-200"
-            >
-              مشاهدة الإجابات ومذاكرتها
-            </button>
-            <button
-              type="button"
-              onClick={onExit}
-              className="w-full sm:w-auto px-8 py-3 bg-slate-300 hover:bg-slate-400 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-extrabold rounded-2xl transition-all duration-200"
-            >
-              العودة للمنهج
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- 2. RENDER RUNNING EXAM SCREEN ---
+  // --- 1. RENDER RUNNING EXAM SCREEN ---
   if (attemptState === "running" && currentQuestion) {
     return (
       <div className={runningWrapperClass}>
-        <div className={`mx-auto grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-6 items-start ${embedded ? "w-full" : "max-w-5xl"}`}>
-          
+        <div className={`mx-auto grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-6 items-start ${embedded ? "w-full" : "max-w-5xl w-full"}`}>
           {/* Main Question view (Left) */}
           <div className="space-y-6">
-            
             {/* Centered Timer Banner */}
             <div className="bg-[#FF6B35] dark:bg-[#00A8E8] text-white rounded-2xl px-8 py-3.5 shadow-lg shadow-red-500/10 text-center w-full max-w-sm mx-auto flex flex-col items-center">
-              <span className="text-xs font-bold tracking-widest opacity-90">باقي من الزمن</span>
-              <span dir="ltr" className="text-3xl font-black mt-1.5 tracking-wider font-mono">{formatTime(timeLeft)}</span>
+              <span className="text-xs font-bold tracking-widest opacity-90 flex items-center gap-1.5">
+                <Timer size={14} /> باقي من الزمن
+              </span>
+              <span dir="ltr" className="text-3xl font-black mt-1.5 tracking-wider font-mono">
+                {formatTime(timeLeft)}
+              </span>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-xl shadow-cyan-950/5 dark:shadow-slate-950/40 text-right space-y-6">
+            <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-xl text-right space-y-6">
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
                 <span className="rounded-full bg-[#FF6B35]/10 px-4 py-1.5 text-xs font-extrabold text-[#FF6B35] dark:text-[#FFB08F]">
-                  درجة واحدة
+                  {currentQuestion.points || 1} درجة
                 </span>
                 <span className="text-sm font-black text-[#0077B6] dark:text-[#00A8E8]">
-                  السؤال الحالي: {currentIndex + 1}
+                  السؤال الحالي: {currentIndex + 1} من {questions.length}
                 </span>
               </div>
 
@@ -433,39 +299,59 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-3.5 mt-8">
-                {currentQuestion.choices.map((choice, idx) => {
-                  const isSelected = answers[currentQuestion.questionId] === idx;
-                  const labelLetter = ["أ", "ب", "ج", "د"][idx] || String.fromCharCode(65 + idx);
+              {currentQuestion.type === "essay" || (!currentQuestion.choices || currentQuestion.choices.length === 0) ? (
+                <div className="space-y-3 mt-6">
+                  <label className="block text-xs font-bold text-slate-500">ادخل إجابتك المقالية بالتفصيل:</label>
+                  <textarea
+                    rows={6}
+                    value={answers[currentQuestion.questionId] || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAnswers((prev) => ({ ...prev, [currentQuestion.questionId]: val }));
+                    }}
+                    placeholder="اكتب إجابتك هنا ليقوم الذكاء الاصطناعي والمعلم بتقييمها..."
+                    className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-4 text-sm font-bold text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-[#0077B6]"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3.5 mt-8">
+                  {currentQuestion.choices.map((choice, idx) => {
+                    const isSelected = answers[currentQuestion.questionId] === idx;
+                    const labelLetter = ["أ", "ب", "ج", "د"][idx] || String.fromCharCode(65 + idx);
 
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setAnswers((prev) => ({ ...prev, [currentQuestion.questionId]: idx }))}
-                      className={`flex items-center justify-between w-full rounded-2xl border p-4 text-right transition-all duration-200 ${
-                        isSelected
-                          ? "border-[#0077B6] bg-[#0077B6]/5 ring-1 ring-[#0077B6]"
-                          : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-[#00A8E8] dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      <span className="flex items-center gap-3">
-                        <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-extrabold transition-colors ${
-                          isSelected ? "bg-[#0077B6] dark:bg-[#00A8E8] text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
-                        }`}>
-                          {labelLetter}
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setAnswers((prev) => ({ ...prev, [currentQuestion.questionId]: idx }))}
+                        className={`flex items-center justify-between w-full rounded-2xl border p-4 text-right transition-all duration-200 ${
+                          isSelected
+                            ? "border-[#0077B6] bg-[#0077B6]/5 ring-1 ring-[#0077B6]"
+                            : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-[#00A8E8] dark:hover:bg-slate-700"
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <span
+                            className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-extrabold transition-colors ${
+                              isSelected ? "bg-[#0077B6] dark:bg-[#00A8E8] text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                            }`}
+                          >
+                            {labelLetter}
+                          </span>
+                          <span className="font-extrabold text-slate-800 dark:text-slate-100">{choice}</span>
                         </span>
-                        <span className="font-extrabold text-slate-800 dark:text-slate-100">{choice}</span>
-                      </span>
-                      <span className={`h-5 w-5 rounded-full border flex items-center justify-center ${
-                        isSelected ? "border-[#0077B6]" : "border-slate-300 dark:border-slate-600"
-                      }`}>
-                        {isSelected && <span className="h-2.5 w-2.5 rounded-full bg-[#0077B6]" />}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                        <span
+                          className={`h-5 w-5 rounded-full border flex items-center justify-center ${
+                            isSelected ? "border-[#0077B6]" : "border-slate-300 dark:border-slate-600"
+                          }`}
+                        >
+                          {isSelected && <span className="h-2.5 w-2.5 rounded-full bg-[#0077B6]" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Navigation Controls */}
               <div className="flex items-center justify-between pt-4 border-t border-slate-100 gap-3">
@@ -493,91 +379,28 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
 
           {/* Stats & Question Grid Sidebar (Right) */}
           <div className="space-y-6">
-            
-            {/* Stats Cards */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-xl shadow-cyan-950/5 dark:shadow-slate-950/40 border border-slate-200 dark:border-slate-800 text-right space-y-4">
-              <h3 className="font-black text-[#0077B6] dark:text-[#00A8E8] text-base border-b border-slate-100 dark:border-slate-800 pb-2">إحصائيات الامتحان</h3>
-              <div className="space-y-2 text-sm font-extrabold">
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="text-slate-900 dark:text-slate-100">{questions.length * 1}</span>
-                  <span className="text-slate-500 dark:text-slate-400">إجمالي درجات الامتحان</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="text-slate-900 dark:text-slate-100">{questions.length}</span>
-                  <span className="text-slate-500 dark:text-slate-400">عدد الأسئلة</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="text-slate-900 dark:text-slate-100">{openedCount}</span>
-                  <span className="text-slate-500 dark:text-slate-400">عدد الأسئلة التي تم فتحها</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="text-red-600 dark:text-red-400">{unsolvedCount}</span>
-                  <span className="text-slate-500 dark:text-slate-400">عدد الأسئلة غير المحلولة</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="text-[#0077B6] dark:text-[#00A8E8]">{solvedCount}</span>
-                  <span className="text-slate-500 dark:text-slate-400">عدد الأسئلة المحلولة</span>
-                </div>
-                <div className="flex justify-between py-1.5">
-                  <span className="text-orange-600 dark:text-[#FFB08F]">{currentIndex + 1}</span>
-                  <span className="text-slate-500 dark:text-slate-400">السؤال الحالي</span>
-                </div>
-                <div className="flex justify-between py-1.5">
-                  <span className="text-slate-900 dark:text-slate-100">
-                    <span dir="ltr" className="inline-flex items-center gap-1">{formatTime(timeSpentSeconds)}</span>
-                  </span>
-                  <span className="text-slate-500 dark:text-slate-400">الزمن المستغرق</span>
-                </div>
-              </div>
-              
-              {/* Submit Buttons */}
-              <div className="space-y-2 pt-2">
-                {submitError && (
-                  <div className="rounded-2xl border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs font-bold text-red-700 dark:text-red-300">
-                    {submitError}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className="w-full py-3 bg-[#0077B6] hover:bg-[#005f92] disabled:opacity-50 text-white font-extrabold rounded-2xl shadow-md transition-colors"
-                >
-                  {isSubmitting ? "جارٍ الحفظ..." : "إنهاء الاختبار"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExitLater}
-                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-extrabold rounded-2xl shadow-md transition-colors"
-                >
-                  استكمال الاختبار لاحقاً
-                </button>
-              </div>
-            </div>
+            <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 p-6 shadow-xl text-right space-y-4">
+              <h3 className="text-base font-black text-slate-800 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800 pb-3">
+                خريطة الأسئلة
+              </h3>
 
-            {/* Questions Grid */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-xl shadow-cyan-950/5 dark:shadow-slate-950/40 border border-slate-200 dark:border-slate-800 text-right">
-              <h3 className="font-black text-[#0077B6] dark:text-[#00A8E8] text-base border-b border-slate-100 dark:border-slate-800 pb-2 mb-4">قائمة الأسئلة</h3>
-              <div className="grid grid-cols-5 gap-2.5">
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2.5 max-h-60 overflow-y-auto p-1 scrollbar-thin">
                 {questions.map((q, idx) => {
                   const isCurrent = idx === currentIndex;
-                  const isAnswered = answers[q.questionId] !== undefined;
-                  const isVisited = visitedQuestions.has(q.questionId);
-
-                  let colorClass = "bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-200";
-                  if (isAnswered) {
-                    colorClass = "bg-[#0077B6] dark:bg-[#00A8E8] text-white shadow-md shadow-blue-500/20";
-                  } else if (isVisited) {
-                    colorClass = "bg-[#FF6B35] dark:bg-[#FF6B35] text-white shadow-md shadow-red-500/20";
-                  }
+                  const val = answers[q.questionId];
+                  const isSolved = (typeof val === "number") || (typeof val === "string" && val.trim().length > 0);
 
                   return (
                     <button
                       key={q.questionId}
                       type="button"
                       onClick={() => setCurrentIndex(idx)}
-                      className={`h-10 w-10 rounded-full font-bold flex items-center justify-center transition-all ${colorClass} ${
-                        isCurrent ? "ring-2 ring-orange-500 ring-offset-2 scale-110" : ""
+                      className={`h-10 rounded-xl text-xs font-black transition-all flex items-center justify-center ${
+                        isCurrent
+                          ? "bg-[#0077B6] text-white shadow-md shadow-blue-500/30 ring-2 ring-blue-300"
+                          : isSolved
+                          ? "bg-emerald-500 text-white"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
                       }`}
                     >
                       {idx + 1}
@@ -585,155 +408,288 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
                   );
                 })}
               </div>
-            </div>
 
+              {submitError && (
+                <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-bold">
+                  {submitError}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="w-full py-3.5 bg-gradient-to-r from-[#FF6B35] to-[#f4511e] hover:brightness-110 text-white font-black rounded-2xl shadow-lg shadow-orange-500/25 transition duration-200 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                إنهاء وتسليم الاختبار
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExitLater}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-2xl text-xs transition duration-200"
+              >
+                حفظ والخروج للمتابعة لاحقاً
+              </button>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // --- 3. RENDER RESULT / EXAM REPORT SCREEN ---
-  if (attemptState === "result" && result) {
+  // --- 2. RENDER RESULTS / REVIEW SCREEN ---
+  if (attemptState === "result" || reviewMode) {
     const totalQuestions = questions.length;
-    const hasLiveAnswers = Object.keys(answers || {}).length > 0;
-    const correctCount = hasLiveAnswers
-      ? questions.filter((question) => answers?.[question.questionId] === question.correctIndex).length
-      : Number(result.earnedPoints || 0);
-    const incorrectCount = Math.max(0, totalQuestions - correctCount);
-    const earnedPoints = Number(result.earnedPoints || 0);
-    const totalPoints = Number(result.totalPoints || 0) || questions.reduce((sum, question) => sum + (Number(question.points || 1) || 1), 0);
-    const resultTimeSpentSeconds = Number(result.timeSpentSeconds || 0);
+    const totalMaxPoints = questions.reduce((sum, q) => sum + (q.points || 1), 0);
+
+    let dynamicEarnedPoints = 0;
+    let dynamicCorrectCount = 0;
+
+    questions.forEach((q) => {
+      const isEssay = q.type === "essay" || (!q.choices || q.choices.length === 0);
+      const studentAns = answers[q.questionId] ?? result?.textAnswers?.[q.questionId] ?? result?.answers?.[q.questionId] ?? previousAttempt?.textAnswers?.[q.questionId] ?? previousAttempt?.answers?.[q.questionId];
+
+      if (isEssay) {
+        const evalInfo = essayEvaluations[q.questionId] || result?.evaluations?.[q.questionId] || previousAttempt?.evaluations?.[q.questionId];
+        if (evalInfo && typeof evalInfo.earnedPoints === "number") {
+          dynamicEarnedPoints += evalInfo.earnedPoints;
+          if (evalInfo.isCorrect || evalInfo.earnedPoints >= (q.points || 1) * 0.5) {
+            dynamicCorrectCount += 1;
+          }
+        }
+      } else {
+        if (studentAns === q.correctIndex) {
+          dynamicEarnedPoints += (q.points || 1);
+          dynamicCorrectCount += 1;
+        }
+      }
+    });
+
+    const earnedPoints = Math.round(dynamicEarnedPoints * 10) / 10;
+    const dynamicPercentage = totalMaxPoints > 0 ? Math.round((earnedPoints / totalMaxPoints) * 100) : 0;
+    const incorrectCount = Math.max(0, totalQuestions - dynamicCorrectCount);
 
     return (
       <div className={resultWrapperClass}>
-        <div className={`mx-auto space-y-6 ${embedded ? "w-full" : "max-w-2xl"}`}>
-          <div className="text-center bg-[#FF4F6C] text-white py-4 px-6 rounded-2xl shadow-md">
-            <h1 className="text-xl font-bold">تقرير نتيجة الامتحان</h1>
-            <p className="text-xs opacity-90 mt-1">منصة الدكتور مينا موريد للكيمياء</p>
+        <div className={`mx-auto bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 p-6 sm:p-10 shadow-2xl space-y-8 ${embedded ? "w-full" : "max-w-4xl w-full"}`}>
+          {/* Header Branding */}
+          <div className="text-center space-y-2 border-b border-slate-100 dark:border-slate-800 pb-6">
+            <span className="text-xs font-black text-[#0077B6] dark:text-[#00A8E8] uppercase tracking-widest block">
+              منصة الدكتور مينا موريد للكيمياء
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-slate-100">
+              نتيجة {quiz?.title || "الاختبار"}
+            </h1>
           </div>
 
-          {/* Stats Badges exactly matching the screenshot */}
-          <div className="flex flex-col gap-3 items-center">
-            
-            {/* Total Questions (Blue) */}
-            <div className="w-full max-w-sm text-center py-2.5 px-4 bg-[#0077B6] text-white font-extrabold rounded-xl shadow-sm text-sm">
-              عدد الاسئلة : {totalQuestions}
+          {/* Results Summary Badges */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            {/* Total Questions */}
+            <div className="py-3.5 px-4 bg-[#0077B6] text-white font-extrabold rounded-2xl shadow-md text-sm">
+              عدد الأسئلة: {totalQuestions}
             </div>
 
-            {/* Score Percentage (Teal) */}
-            <div className="w-full max-w-sm text-center py-4 px-4 bg-[#00A8E8] text-white font-black rounded-xl shadow-sm text-base flex flex-col items-center">
-              <span>النتيجة : {result.percentage}%</span>
-              <span className="text-xs mt-1 font-bold">
-                {hasLiveAnswers ? `${correctCount} صحيحة من ${totalQuestions}` : `${earnedPoints} من ${totalPoints} درجة`}
+            {/* Score Percentage */}
+            <div className="py-3.5 px-4 bg-gradient-to-r from-[#00A8E8] to-[#38D9C8] text-white font-black rounded-2xl shadow-md text-base flex flex-col items-center justify-center">
+              <span>النتيجة: {dynamicPercentage}%</span>
+              <span className="text-xs font-bold mt-0.5">
+                {earnedPoints} من {totalMaxPoints} درجة
               </span>
             </div>
 
-            {/* Solved Questions (Yellow) */}
-            <div className="w-full max-w-sm text-center py-2.5 px-4 bg-amber-500 text-white font-extrabold rounded-xl shadow-sm text-sm">
-              عدد الاسئلة المحلولة : {totalQuestions}
+            {/* Correct Answers */}
+            <div className="py-3.5 px-4 bg-emerald-500 text-white font-extrabold rounded-2xl shadow-md text-sm">
+              الأسئلة الصحيحة: {dynamicCorrectCount}
             </div>
 
-            {/* Correct Answers (Teal/Green) */}
-            <div className="w-full max-w-sm text-center py-2.5 px-4 bg-emerald-500 text-white font-extrabold rounded-xl shadow-sm text-sm">
-              {hasLiveAnswers ? `عدد الاسئلة الصحيحة : ${correctCount}` : `الدرجات الصحيحة : ${earnedPoints}`}
-            </div>
-
-            {/* Incorrect Answers (Red) */}
-            <div className="w-full max-w-sm text-center py-2.5 px-4 bg-red-500 text-white font-extrabold rounded-xl shadow-sm text-sm">
-              عدد الاسئلة الخاطئة : {incorrectCount}
-            </div>
-
-            <div className="w-full max-w-sm grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-center">
-                <p className="text-[10px] font-bold text-slate-400">الزمن المستغرق</p>
-                <p dir="ltr" className="mt-1 text-sm font-black text-slate-900">{formatTime(resultTimeSpentSeconds)}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-center">
-                <p className="text-[10px] font-bold text-slate-400">تاريخ التسليم</p>
-                <p className="mt-1 text-sm font-black text-slate-900">{formatDateTime(result.createdAt || result.takenAt)}</p>
-              </div>
+            {/* Incorrect Answers */}
+            <div className="py-3.5 px-4 bg-red-500 text-white font-extrabold rounded-2xl shadow-md text-sm">
+              الأسئلة الخاطئة: {incorrectCount}
             </div>
           </div>
 
-          <hr className="border-slate-300 my-6" />
+          {/* Review Details */}
+          <div className="space-y-6 text-right pt-4">
+            <h2 className="text-xl font-black text-[#0077B6] dark:text-[#00A8E8] border-r-4 border-[#0077B6] pr-3">
+              تفاصيل الإجابات والتصحيح بالذكاء الاصطناعي
+            </h2>
 
-            {/* Review answers */}
-          <div className="space-y-6 text-right">
-            <h2 className="text-xl font-black text-[#0077B6] mb-4 text-center">الاجابات</h2>
-            
             {questions.map((q, idx) => {
-              const studentAnswer = answers[q.questionId];
-              const isCorrect = studentAnswer === q.correctIndex;
-              
+              const isEssay = q.type === "essay" || (!q.choices || q.choices.length === 0);
+              const studentAnswer = answers[q.questionId] 
+                ?? result?.textAnswers?.[q.questionId] 
+                ?? result?.answers?.[q.questionId] 
+                ?? previousAttempt?.textAnswers?.[q.questionId] 
+                ?? previousAttempt?.answers?.[q.questionId];
+
+              const evalInfo = essayEvaluations[q.questionId] 
+                || result?.evaluations?.[q.questionId] 
+                || previousAttempt?.evaluations?.[q.questionId];
+
+              const isCorrect = evalInfo
+                ? (evalInfo.isCorrect || (evalInfo.earnedPoints && evalInfo.earnedPoints >= (q.points || 1) * 0.5))
+                : isEssay
+                ? false
+                : studentAnswer === q.correctIndex;
+
+              const questionPoints = q.points || 1;
+              const questionEarnedPoints = evalInfo?.earnedPoints ?? (isCorrect ? questionPoints : 0);
+
               return (
                 <div
                   key={q.questionId}
-                  className={`rounded-2xl bg-white dark:bg-slate-900 p-5 border shadow-sm space-y-3 ${
-                    isCorrect ? "border-emerald-300 dark:border-emerald-700" : "border-red-300 dark:border-red-700"
+                  className={`rounded-3xl bg-slate-50/60 dark:bg-slate-800/40 p-6 border shadow-sm space-y-4 ${
+                    isCorrect
+                      ? "border-emerald-400 dark:border-emerald-700/80 bg-emerald-50/10"
+                      : "border-red-400 dark:border-red-700/80 bg-red-50/10"
                   }`}
                 >
                   <div className="flex justify-between items-center">
-                    <span className="bg-[#FF6B35] text-white px-3 py-1 rounded-full text-xs font-bold">
-                      درجة واحدة
+                    <span className={`px-3.5 py-1 rounded-full text-xs font-extrabold shadow-sm text-white ${
+                      isCorrect ? "bg-emerald-600" : "bg-red-600"
+                    }`}>
+                      {questionEarnedPoints} / {questionPoints} درجة
                     </span>
-                    <span className="font-extrabold text-[#0077B6] dark:text-[#00A8E8] text-sm">
-                      السؤال {idx + 1}
+                    <span className="font-black text-[#0077B6] dark:text-[#00A8E8] text-sm flex items-center gap-2">
+                      {isCorrect ? (
+                        <span className="text-xs bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">✓ إجابة صحيحة</span>
+                      ) : (
+                        <span className="text-xs bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 px-2 py-0.5 rounded-full font-bold">✗ إجابة غير صحيحة</span>
+                      )}
+                      السؤال {idx + 1} {isEssay ? "(سؤال مقالي)" : "(اختيار من متعدد)"}
                     </span>
                   </div>
 
-                  <p className="font-black text-slate-800 dark:text-slate-100 leading-relaxed">{q.prompt}</p>
+                  <p className="font-black text-slate-800 dark:text-slate-100 text-base leading-relaxed">{q.prompt}</p>
 
-                  <div className="grid grid-cols-1 gap-2.5 mt-2">
-                    {q.choices.map((choice, cIdx) => {
-                      const isOptionSelected = studentAnswer === cIdx;
-                      const isOptionCorrect = q.correctIndex === cIdx;
-                      
-                      let optionBg = "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200";
-                      if (isOptionCorrect) {
-                        optionBg = "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 font-extrabold";
-                      } else if (isOptionSelected && !isCorrect) {
-                        optionBg = "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-700 text-red-800 dark:text-red-200 font-extrabold";
-                      }
+                  {/* Essay Question Review */}
+                  {isEssay ? (
+                    <div className="space-y-3 pt-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                          <span className="block text-xs font-bold text-slate-500 mb-1">إجابتك المكتوبة:</span>
+                          <p className="text-sm font-bold text-slate-800 dark:text-slate-100 whitespace-pre-wrap">
+                            {studentAnswer !== undefined && studentAnswer !== null && String(studentAnswer).trim().length > 0 ? String(studentAnswer) : "لم يتم تقديم إجابة."}
+                          </p>
+                        </div>
 
-                      return (
-                        <div
-                          key={cIdx}
-                          className={`flex items-center justify-between border rounded-xl px-4 py-2.5 text-sm ${optionBg}`}
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className="h-6 w-6 rounded-full bg-white/80 dark:bg-slate-700 border flex items-center justify-center text-xs font-bold">
-                              {["أ", "ب", "ج", "د"][cIdx]}
+                        {q.modelAnswer && (
+                          <div className="p-4 rounded-2xl bg-cyan-50/60 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800">
+                            <span className="block text-xs font-bold text-[#0077B6] dark:text-[#00A8E8] mb-1">
+                              الإجابة النموذجية المعتمدة:
                             </span>
-                            <span>{choice}</span>
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                              {q.modelAnswer}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Progressive AI Evaluation Box */}
+                      <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-850 border border-blue-200 dark:border-blue-800 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-[#0077B6] dark:text-[#00A8E8] flex items-center gap-1.5">
+                            <Sparkles size={14} className="text-amber-500" />
+                            تصحيح وتحليل الذكاء الاصطناعي (Gemini AI):
                           </span>
-                          <span>
-                            {isOptionCorrect ? (
-                              <Check size={16} className="text-emerald-600" />
-                            ) : isOptionSelected && !isCorrect ? (
-                              <X size={16} className="text-red-600" />
-                            ) : null}
+                          <span
+                            className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                              isCorrect ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                            }`}
+                          >
+                            {isCorrect ? "تم قبول الإجابة ✓" : "إجابة غير صحيحة ✗"}
                           </span>
                         </div>
-                      );
-                    })}
-                  </div>
 
-                  {!isCorrect && (
-                    <p className="text-xs text-red-600 font-extrabold pt-1">
-                      تصحيح الإجابة: {q.choices[q.correctIndex]}
-                    </p>
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-relaxed">
+                          {evalInfo?.feedback || "تم تسجيل الإجابة وتحليلها بنجاح."}
+                        </p>
+
+                        {evalInfo?.strengths && evalInfo.strengths.length > 0 && (
+                          <div className="pt-1 flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[11px] font-bold text-emerald-700">النقاط الصحيحة:</span>
+                            {evalInfo.strengths.map((str, sIdx) => (
+                              <span
+                                key={sIdx}
+                                className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md"
+                              >
+                                ✓ {str}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {evalInfo?.missingPoints && evalInfo.missingPoints.length > 0 && (
+                          <div className="pt-1 flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[11px] font-bold text-amber-700">توضيحات المنهج:</span>
+                            {evalInfo.missingPoints.map((mis, mIdx) => (
+                              <span
+                                key={mIdx}
+                                className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md"
+                              >
+                                ℹ {mis}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* MCQ Choices Review */
+                    <div className="grid grid-cols-1 gap-2.5 mt-2">
+                      {q.choices.map((choice, cIdx) => {
+                        const isOptionSelected = studentAnswer === cIdx;
+                        const isOptionCorrect = q.correctIndex === cIdx;
+
+                        let optionBg = "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200";
+                        if (isOptionCorrect) {
+                          optionBg = "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 font-extrabold ring-1 ring-emerald-400";
+                        } else if (isOptionSelected && !isCorrect) {
+                          optionBg = "bg-red-50 dark:bg-red-950/30 border-red-400 dark:border-red-700 text-red-800 dark:text-red-200 font-extrabold ring-1 ring-red-400";
+                        }
+
+                        return (
+                          <div
+                            key={cIdx}
+                            className={`flex items-center justify-between border rounded-2xl px-4 py-3 text-sm ${optionBg}`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <span className="h-6 w-6 rounded-full bg-slate-100 dark:bg-slate-700 border flex items-center justify-center text-xs font-bold">
+                                {["أ", "ب", "ج", "د"][cIdx] || cIdx + 1}
+                              </span>
+                              <span>{choice}</span>
+                            </span>
+                            <span>
+                              {isOptionCorrect ? (
+                                <Check size={16} className="text-emerald-600" />
+                              ) : isOptionSelected && !isCorrect ? (
+                                <X size={16} className="text-red-600" />
+                              ) : null}
+                            </span>
+                          </div>
+                        );
+                      })}
+
+                      {!isCorrect && q.choices[q.correctIndex] && (
+                        <p className="text-xs text-red-600 font-extrabold pt-1">
+                          الإجابة الصحيحة: {q.choices[q.correctIndex]}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
 
+          {/* Footer Action */}
           <div className="text-center pt-6">
             <button
               type="button"
-              onClick={onExit}
-              className="px-10 py-3 bg-[#0077B6] hover:bg-[#005f92] text-white font-extrabold rounded-2xl shadow-lg transition-colors"
+              onClick={handleBackToCourse}
+              className="px-10 py-3.5 bg-gradient-to-r from-[#0077B6] to-[#00A8E8] hover:brightness-110 text-white font-black rounded-2xl shadow-lg transition-all"
             >
               العودة للمنهج
             </button>
@@ -743,5 +699,60 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
     );
   }
 
-  return null;
+  // --- 3. RENDER INTRO / TABLE SCREEN ---
+  const introContainerClass = embedded
+    ? "w-full max-w-2xl mx-auto p-6 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 text-right space-y-6 shadow-xl"
+    : "fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto font-['Cairo',_sans-serif]";
+
+  return (
+    <div className={introContainerClass} dir="rtl">
+      <div className="w-full max-w-2xl mx-auto p-6 sm:p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 text-right space-y-6 shadow-2xl">
+        <div className="text-center space-y-2 border-b border-slate-100 dark:border-slate-800 pb-4">
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-slate-100">{quiz?.title || "كويز تفاعلي"}</h2>
+          <p className="text-xs text-slate-500 font-bold">
+            عدد الأسئلة: {questions.length} | المدة الزمنية: {quiz?.minutes || 10} دقيقة
+          </p>
+        </div>
+
+        {previousAttempt && (
+          <div className="p-4 bg-cyan-50 dark:bg-slate-800 rounded-2xl text-xs font-bold text-[#0077B6] dark:text-cyan-300 space-y-1">
+            <p>آخر محاولة: {previousAttempt.earnedPoints} / {previousAttempt.totalPoints} ({previousAttempt.percentage}%)</p>
+            <p>التاريخ: {formatDateTime(previousAttempt.updatedAt || previousAttempt.takenAt)}</p>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-3 items-center justify-center pt-2">
+          <button
+            type="button"
+            onClick={startExamNew}
+            className="w-full sm:w-auto px-8 py-3.5 bg-[#FF6B35] hover:bg-[#e05621] text-white font-black rounded-2xl shadow-lg shadow-orange-500/20 transition"
+          >
+            {hasDraft ? "استكمال الاختبار السابق" : previousAttempt ? "إعادة الاختبار" : "ابدأ الاختبار الآن"}
+          </button>
+
+          {previousAttempt && (
+            <button
+              type="button"
+              onClick={() => {
+                setResult(previousAttempt);
+                setAttemptState("result");
+                setReviewMode(true);
+              }}
+              className="w-full sm:w-auto px-8 py-3.5 bg-[#0077B6] hover:bg-[#005f92] text-white font-black rounded-2xl transition"
+            >
+              مراجعة الإجابات
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleBackToCourse}
+            className="w-full sm:w-auto px-6 py-3.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-black rounded-2xl transition"
+          >
+            إلغاء
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

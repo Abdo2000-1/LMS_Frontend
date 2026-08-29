@@ -164,6 +164,8 @@ export default function Register() {
     name: "",
     email: "",
     phone: "",
+    parentPhone: "",
+    center: "",
     grade: STUDENT_GRADES[2],
     governorate: GOVERNORATE_OPTIONS[0],
     password: "",
@@ -178,6 +180,7 @@ export default function Register() {
   function validate(values) {
     const errs = {};
     const phoneDigits = values.phone.replace(/\D/g, "");
+    const parentPhoneDigits = (values.parentPhone || "").replace(/\D/g, "");
 
     if (!values.name.trim()) errs.name = "من فضلك اكتب اسمك بالكامل";
     else if (values.name.trim().length < 3) errs.name = "الاسم قصير جدًا";
@@ -188,6 +191,9 @@ export default function Register() {
 
     if (!phoneDigits) errs.phone = "من فضلك اكتب رقم الموبايل";
     else if (phoneDigits.length < 11) errs.phone = "رقم الموبايل غير صحيح";
+
+    if (!parentPhoneDigits) errs.parentPhone = "من فضلك اكتب رقم ولي الأمر";
+    else if (parentPhoneDigits.length < 11) errs.parentPhone = "رقم ولي الأمر غير صحيح";
 
     if (!values.grade) errs.grade = "من فضلك اختار الصف الدراسي";
     if (!values.governorate) errs.governorate = "من فضلك اختار المحافظة";
@@ -225,6 +231,8 @@ export default function Register() {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
+        parentPhone: form.parentPhone.trim(),
+        center: form.center.trim(),
         grade: form.grade,
         governorate: form.governorate,
         password: form.password,
@@ -290,7 +298,6 @@ export default function Register() {
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-chem-light to-chem-deep text-white flex items-center justify-center shadow-lg shadow-chem-light/30 mb-2">
                     <Languages size={28} />
                   </div>
-                  <h1 className="text-2xl font-extrabold">إنشاء حساب طالب جديد</h1>
                   <p className="text-sm text-slate-400">
                     ابدأ رحلتك الدراسية وسجّل بياناتك كاملة
                   </p>
@@ -310,7 +317,7 @@ export default function Register() {
                   {/* Name */}
                   <div>
                     <label htmlFor="name" className="block text-sm font-bold mb-1.5 text-slate-300">
-                      الاسم بالكامل
+                      الاسم بالكامل <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
                       <User size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -331,11 +338,11 @@ export default function Register() {
                     )}
                   </div>
 
-                  {/* Phone + Email row */}
+                  {/* Phone + Parent Phone row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label htmlFor="phone" className="block text-sm font-bold mb-1.5 text-slate-300">
-                        رقم الموبايل
+                        رقم الموبايل <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <Phone size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -356,8 +363,33 @@ export default function Register() {
                       )}
                     </div>
                     <div>
+                      <label htmlFor="parentPhone" className="block text-sm font-bold mb-1.5 text-slate-300">
+                        رقم ولي الأمر <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <Phone size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          id="parentPhone"
+                          name="parentPhone"
+                          type="tel"
+                          value={form.parentPhone}
+                          onChange={handleChange}
+                          placeholder="01XXXXXXXXX"
+                          aria-invalid={Boolean(errors.parentPhone)}
+                          className={inputClasses("parentPhone")}
+                        />
+                      </div>
+                      {errors.parentPhone && (
+                        <p className="mt-1.5 text-xs text-chem-cta">{errors.parentPhone}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Email + Center row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
                       <label htmlFor="email" className="block text-sm font-bold mb-1.5 text-slate-300">
-                        البريد الإلكتروني
+                        البريد الإلكتروني <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <Mail size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -377,13 +409,30 @@ export default function Register() {
                         <p className="mt-1.5 text-xs text-chem-cta">{errors.email}</p>
                       )}
                     </div>
+                    <div>
+                      <label htmlFor="center" className="block text-sm font-bold mb-1.5 text-slate-300">
+                        السنتر (اختياري)
+                      </label>
+                      <div className="relative">
+                        <GraduationCap size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          id="center"
+                          name="center"
+                          type="text"
+                          value={form.center}
+                          onChange={handleChange}
+                          placeholder="اسم السنتر المقيد به إن وجد"
+                          className={inputClasses("center")}
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {/* Grade + Governorate row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label htmlFor="grade" className="block text-sm font-bold mb-1.5 text-slate-300">
-                        الصف الدراسي
+                        الصف الدراسي <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <GraduationCap size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -407,7 +456,7 @@ export default function Register() {
                     </div>
                     <div>
                       <label htmlFor="governorate" className="block text-sm font-bold mb-1.5 text-slate-300">
-                        المحافظة
+                        المحافظة <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <MapPinned size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -426,6 +475,17 @@ export default function Register() {
                         </select>
                       </div>
                       {errors.governorate && (
+                        <p className="mt-1.5 text-xs text-chem-cta">{errors.governorate}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Password + Confirm row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                      <label htmlFor="password" className="block text-sm font-bold mb-1.5 text-slate-300">
+                        كلمة المرور <span className="text-red-500">*</span>
+                      </label>                  {errors.governorate && (
                         <p className="mt-1.5 text-xs text-chem-cta">{errors.governorate}</p>
                       )}
                     </div>

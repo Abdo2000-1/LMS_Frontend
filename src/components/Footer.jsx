@@ -78,8 +78,11 @@ export default function Footer() {
               <Mail size={16} />
             </li>
             <li className="flex items-center gap-2 justify-center sm:justify-end">
-              <span dir="ltr" className="font-medium text-slate-200">01555538712</span>
+              <span dir="ltr" className="font-medium text-slate-200">01107224645</span>
               <Phone size={16} />
+            </li>
+            <li className="flex items-center gap-2 justify-center sm:justify-end text-xs text-slate-400">
+              <span dir="ltr" className="font-medium text-cyan-400">الدعم الفني والتقني: 01127927752</span>
             </li>
             <li className="flex items-center gap-2 justify-center sm:justify-end">
               <span>القاهرة، مصر</span>

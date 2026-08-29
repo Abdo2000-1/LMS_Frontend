@@ -13,6 +13,8 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 ::selection {
@@ -80,4 +82,25 @@ input:focus-visible {
   outline: 2px solid #00A8E8;
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Dark mode input, textarea, select, and option contrast fixes */
+.dark input,
+.dark textarea,
+.dark select,
+.dark option {
+  color: #f8fafc !important;
+  background-color: #1e293b;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+input, textarea, select {
+  color: #0f172a;
+}
+.dark input, .dark textarea, .dark select {
+  color: #f8fafc;
 }

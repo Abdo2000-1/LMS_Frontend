@@ -89,7 +89,12 @@ export function buildCourseContent(course = {}) {
     sortOrder: Number(resource.order || 0),
   }));
   const quizzes = (course.quizzes || []).map((quiz) => ({ ...quiz, type: "quiz", sortOrder: Number(quiz.order || 0) }));
-  return [...videos, ...moduleVideos, ...resources, ...quizzes].sort((a, b) => a.sortOrder - b.sortOrder);
+  return [...videos, ...moduleVideos, ...resources, ...quizzes].sort((a, b) => {
+    const timeA = new Date(a.createdAt || 0).getTime();
+    const timeB = new Date(b.createdAt || 0).getTime();
+    if (timeA !== timeB) return timeA - timeB; // Oldest first (FIFO)
+    return (a.sortOrder || 0) - (b.sortOrder || 0); // fallback to order if same time
+  });
 }
 
 function extractErrorMessage(error) {
@@ -120,14 +125,26 @@ function mapCourse(course) {
     quizzes: Array.isArray(course.quizzes) ? course.quizzes : [],
     modules: Array.isArray(course.modules) ? course.modules : [],
     studentsCount: Number(course.studentsCount || 0),
+    hasFullAccess: Boolean(course.hasFullAccess),
+    unlockedLectureIds: Array.isArray(course.unlockedLectureIds) ? course.unlockedLectureIds : [],
     createdAt: course.createdAt,
     updatedAt: course.updatedAt,
   };
 }
 
+export async function getCourseGrades() {
+  try {
+    const { data } = await apiClient.get("/api/courses/grades", requestConfig);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 // ─── Course CRUD ─────────────────────────────────────────────────
 
-export async function createCourse({ teacherId, payload }) {
+export async function createCourse(input) {
+  const payload = input?.payload || input || {};
   try {
     const { data } = await apiClient.post("/api/courses", {
       title: String(payload.title || "").trim(),
@@ -147,7 +164,8 @@ export async function createCourse({ teacherId, payload }) {
   }
 }
 
-export async function updateCourse(courseId, payload) {
+export async function updateCourse(courseId, input) {
+  const payload = input?.payload || input || {};
   try {
     const { data } = await apiClient.put(`/api/courses/${courseId}`, {
       title: String(payload.title || "").trim(),
@@ -466,25 +484,43 @@ export async function markLessonCompleted({ uid, courseId, unitId, totalUnits })
 
 export async function submitQuizAttempt({ uid, courseId, quiz, timeSpentSeconds = 0 }) {
   try {
+    const answers = {};
+    const textAnswers = {};
+    if (quiz.answers) {
+      Object.entries(quiz.answers).forEach(([qId, ans]) => {
+        if (typeof ans === "number") {
+          answers[qId] = ans;
+        } else if (typeof ans === "string") {
+          textAnswers[qId] = ans;
+        }
+      });
+    }
+
     const { data } = await apiClient.post(`/api/courses/${courseId}/quiz-attempts`, {
       quizId: quiz.quizId || "",
       quizTitle: quiz.title || "",
       questions: (quiz.questions || []).map((q, index) => ({
         questionId: q.questionId || `question_${index + 1}`,
+        type: q.type || (q.choices && q.choices.length > 0 ? "mcq" : "essay"),
         prompt: String(q.prompt || "").trim(),
         choices: q.choices || [],
         correctIndex: Number(q.correctIndex || 0),
         points: Number(q.points || 1),
+        modelAnswer: q.modelAnswer || null,
+        gradingRubric: q.gradingRubric || null,
       })),
-      answers: quiz.answers || {},
+      answers,
+      textAnswers,
       timeSpentSeconds: Number(timeSpentSeconds || 0),
     }, requestConfig);
     return {
+      id: data.id,
       earnedPoints: data.earnedPoints,
       totalPoints: data.totalPoints,
       percentage: data.percentage,
       timeSpentSeconds: data.timeSpentSeconds ?? Number(timeSpentSeconds || 0),
       createdAt: data.createdAt,
+      evaluations: data.evaluations || {},
     };
   } catch (error) {
     throw new Error(extractErrorMessage(error));

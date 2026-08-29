@@ -12,7 +12,10 @@ import {
   HelpCircle,
   BarChart3,
   LogOut,
-  Wallet
+  Wallet,
+  KeyRound,
+  FileEdit,
+  Video
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useBranding } from "../context/BrandingContext.jsx";
@@ -21,10 +24,13 @@ import Footer from "./Footer.jsx";
 
 export const TEACHER_SIDEBAR_TABS = [
   { id: "courses", label: "الكورسات الحالية", icon: BookOpen },
+  { id: "access-codes", label: "أكواد التفعيل (12 رقم)", icon: KeyRound },
+  { id: "essay-grading", label: "تصحيح الأسئلة المقالية", icon: FileEdit },
   { id: "students", label: "بيانات الطلاب", icon: Users },
   { id: "student-details", label: "متابعة وتفاصيل الطلاب", icon: NotebookText },
   { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet, hasBadge: true },
   { id: "add-course", label: "إضافة كورس جديد", icon: PlusCircle },
+  { id: "add-standalone-lecture", label: "إضافة محاضرة مستقلة", icon: Video },
   { id: "add-exam", label: "إضافة امتحان جديد", icon: HelpCircle },
 ];
 

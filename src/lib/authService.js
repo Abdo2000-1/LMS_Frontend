@@ -76,10 +76,13 @@ export function mapUserProfile(data) {
     name: data.name || data.fullName || "مستخدم",
     email: data.email || "",
     phone: data.phone || "",
+    parentPhone: data.parentPhone || "",
+    center: data.center || "",
     role: normalizeRole(data.role),
     grade: data.grade || "",
     governorate: data.governorate || "",
     enrolledCourses: Array.isArray(data.enrolledCourses) ? data.enrolledCourses : [],
+    allowedUnits: data.allowedUnits || {},
     progress: data.progress || {},
     quizResults: data.quizResults || {},
     isBlocked: Boolean(data.isBlocked),
@@ -102,12 +105,14 @@ function extractErrorMessage(error) {
 /**
  * Register a new student account.
  */
-export async function registerRequest({ name, email, phone, grade, governorate, password }) {
+export async function registerRequest({ name, email, phone, parentPhone, center, grade, governorate, password }) {
   try {
     const { data } = await apiClient.post("/api/auth/register", {
       fullName: String(name || "").trim(),
       email: String(email || "").trim().toLowerCase(),
       phone: normalizePhone(phone),
+      parentPhone: normalizePhone(parentPhone),
+      center: String(center || "").trim(),
       grade: String(grade || "").trim(),
       governorate: String(governorate || "").trim(),
       password,

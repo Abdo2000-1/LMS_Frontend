@@ -45,19 +45,11 @@ export default function SecurityGuard() {
 
     document.addEventListener("contextmenu", blockContextMenu);
     document.addEventListener("keydown", blockShortcuts);
-    document.addEventListener("selectstart", blockSelection);
-    document.addEventListener("dragstart", blockSelection);
-    document.addEventListener("copy", blockSelection);
-    document.addEventListener("cut", blockSelection);
     const timer = window.setInterval(detectDevTools, 1200);
 
     return () => {
       document.removeEventListener("contextmenu", blockContextMenu);
       document.removeEventListener("keydown", blockShortcuts);
-      document.removeEventListener("selectstart", blockSelection);
-      document.removeEventListener("dragstart", blockSelection);
-      document.removeEventListener("copy", blockSelection);
-      document.removeEventListener("cut", blockSelection);
       window.clearInterval(timer);
     };
   }, []);

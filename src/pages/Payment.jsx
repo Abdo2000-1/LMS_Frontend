@@ -206,11 +206,11 @@ export default function Payment() {
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="rounded-xl border border-slate-200 bg-white p-4">
                         <span className="font-bold text-slate-700">فودافون كاش (Vodafone Cash)</span>
-                        <p className="mt-1 text-base font-black text-[#0077B6]" dir="ltr">{invoice?.vodafoneCash || "01000000000"}</p>
+                        <p className="mt-1 text-base font-black text-[#0077B6]" dir="ltr">01203324447</p>
                       </div>
                       <div className="rounded-xl border border-slate-200 bg-white p-4">
                         <span className="font-bold text-slate-700">إنستاباي (InstaPay IPN)</span>
-                        <p className="mt-1 text-base font-black text-[#0077B6]" dir="ltr">{invoice?.instaPay || "mena.mourid@instapay"}</p>
+                        <p className="mt-1 text-base font-black text-[#0077B6]" dir="ltr">01203324447</p>
                       </div>
                     </div>
 

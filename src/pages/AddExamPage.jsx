@@ -20,11 +20,14 @@ import { uploadImageToStorage } from "../services/storageService.js";
 import { useEffect } from "react";
 
 const emptyQuestion = () => ({
+  type: "mcq",
   prompt: "",
   questionImageUrl: "",
   choices: ["", "", "", ""],
   correctIndex: 0,
   points: 1,
+  modelAnswer: "",
+  gradingRubric: "",
 });
 
 export default function AddExamPage() {
@@ -124,7 +127,7 @@ export default function AddExamPage() {
 
     if (!title.trim()) return setError("اكتب عنوان الامتحان.");
     if (questions.some((q) => !q.prompt.trim())) return setError("اكتب نص كل الأسئلة.");
-    if (questions.some((q) => q.choices.some((c) => !c.trim()))) return setError("اكتب كل خيارات الإجابة.");
+    if (questions.some((q) => q.type !== "essay" && q.choices.some((c) => !c.trim()))) return setError("اكتب كل خيارات الإجابة للأسئلة الاختيارية.");
 
     setIsBusy(true);
     try {
@@ -138,11 +141,14 @@ export default function AddExamPage() {
         isPublished,
         questions: questions.map((q, idx) => ({
           questionId: `q${Date.now()}_${idx}`,
+          type: q.type || "mcq",
           prompt: q.prompt.trim(),
           questionImageUrl: q.questionImageUrl || "",
-          choices: q.choices.map((c) => c.trim()).filter(Boolean),
-          correctIndex: q.correctIndex,
+          choices: q.type === "essay" ? [] : q.choices.map((c) => c.trim()).filter(Boolean),
+          correctIndex: q.type === "essay" ? 0 : q.correctIndex,
           points: Number(q.points || 1),
+          modelAnswer: q.type === "essay" ? (q.modelAnswer || "").trim() : null,
+          gradingRubric: q.type === "essay" ? (q.gradingRubric || "").trim() : null,
         })),
       });
       setNotice(`✅ تم إضافة الامتحان "${title}" بنجاح! (${questions.length} سؤال)`);
@@ -406,6 +412,33 @@ export default function AddExamPage() {
                   </div>
                 </div>
 
+                {/* Question Type Selector */}
+                <div className="flex items-center gap-4 bg-white dark:bg-slate-700 p-3 rounded-2xl border border-slate-200 dark:border-slate-600">
+                  <span className="text-xs font-extrabold text-slate-700 dark:text-slate-200">نوع السؤال:</span>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <input
+                      type="radio"
+                      name={`q_type_${activeQuestionIndex}`}
+                      value="mcq"
+                      checked={questions[activeQuestionIndex].type === "mcq" || !questions[activeQuestionIndex].type}
+                      onChange={() => updateQuestion(activeQuestionIndex, "type", "mcq")}
+                      className="accent-[#0077B6]"
+                    />
+                    اختيار من متعدد (MCQ)
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <input
+                      type="radio"
+                      name={`q_type_${activeQuestionIndex}`}
+                      value="essay"
+                      checked={questions[activeQuestionIndex].type === "essay"}
+                      onChange={() => updateQuestion(activeQuestionIndex, "type", "essay")}
+                      className="accent-[#0077B6]"
+                    />
+                    مقالي (Essay)
+                  </label>
+                </div>
+
                 {/* Question text */}
                 <textarea
                   value={questions[activeQuestionIndex].prompt}
@@ -447,55 +480,84 @@ export default function AddExamPage() {
                   />
                 )}
 
-                {/* Choices */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold text-slate-600 dark:text-slate-400">الخيارات (اضغط على الزر الدائري لتحديد الإجابة الصحيحة)</p>
-                    <button
-                      type="button"
-                      onClick={() => addChoice(activeQuestionIndex)}
-                      className="text-[#0077B6] dark:text-[#00A8E8] text-xs font-extrabold flex items-center gap-1 hover:underline"
-                    >
-                      <Plus size={12} /> خيار جديد
-                    </button>
+                {/* Conditional Fields based on Question Type */}
+                {questions[activeQuestionIndex].type === "essay" ? (
+                  <div className="space-y-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        الإجابة النموذجية (Model Answer)
+                      </label>
+                      <textarea
+                        value={questions[activeQuestionIndex].modelAnswer || ""}
+                        onChange={(e) => updateQuestion(activeQuestionIndex, "modelAnswer", e.target.value)}
+                        placeholder="اكتب الإجابة النموذجية التفصيلية التي سيعتمد عليها التصحيح..."
+                        rows={3}
+                        className="w-full rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#0077B6] resize-none text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        معيار التصحيح وتوزيع الدرجات (Grading Rubric)
+                      </label>
+                      <textarea
+                        value={questions[activeQuestionIndex].gradingRubric || ""}
+                        onChange={(e) => updateQuestion(activeQuestionIndex, "gradingRubric", e.target.value)}
+                        placeholder="مثال: النقطة الأولى = 2 درجات، النقطة الثانية = 3 درجات..."
+                        rows={2}
+                        className="w-full rounded-2xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#0077B6] resize-none text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    {questions[activeQuestionIndex].choices.map((choice, cIdx) => (
-                      <div key={cIdx} className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateQuestion(activeQuestionIndex, "correctIndex", cIdx)}
-                          className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                            questions[activeQuestionIndex].correctIndex === cIdx
-                              ? "border-emerald-500 bg-emerald-500"
-                              : "border-slate-300 dark:border-slate-600"
-                          }`}
-                        >
-                          {questions[activeQuestionIndex].correctIndex === cIdx && (
-                            <CheckCircle2 size={14} className="text-white" />
-                          )}
-                        </button>
-                        <input
-                          type="text"
-                          value={choice}
-                          onChange={(e) => updateChoice(activeQuestionIndex, cIdx, e.target.value)}
-                          placeholder={`الخيار ${cIdx + 1}`}
-                          required
-                          className="flex-1 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#0077B6] text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
-                        />
-                        {questions[activeQuestionIndex].choices.length > 2 && (
+                ) : (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-slate-600 dark:text-slate-400">الخيارات (اضغط على الزر الدائري لتحديد الإجابة الصحيحة)</p>
+                      <button
+                        type="button"
+                        onClick={() => addChoice(activeQuestionIndex)}
+                        className="text-[#0077B6] dark:text-[#00A8E8] text-xs font-extrabold flex items-center gap-1 hover:underline"
+                      >
+                        <Plus size={12} /> خيار جديد
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {questions[activeQuestionIndex].choices.map((choice, cIdx) => (
+                        <div key={cIdx} className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => removeChoice(activeQuestionIndex, cIdx)}
-                            className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                            onClick={() => updateQuestion(activeQuestionIndex, "correctIndex", cIdx)}
+                            className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                              questions[activeQuestionIndex].correctIndex === cIdx
+                                ? "border-emerald-500 bg-emerald-500"
+                                : "border-slate-300 dark:border-slate-600"
+                            }`}
                           >
-                            <Trash2 size={14} />
+                            {questions[activeQuestionIndex].correctIndex === cIdx && (
+                              <CheckCircle2 size={14} className="text-white" />
+                            )}
                           </button>
-                        )}
-                      </div>
-                    ))}
+                          <input
+                            type="text"
+                            value={choice}
+                            onChange={(e) => updateChoice(activeQuestionIndex, cIdx, e.target.value)}
+                            placeholder={`الخيار ${cIdx + 1}`}
+                            required
+                            className="flex-1 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#0077B6] text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                          />
+                          {questions[activeQuestionIndex].choices.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => removeChoice(activeQuestionIndex, cIdx)}
+                              className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 

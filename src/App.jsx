@@ -18,6 +18,7 @@ import CourseDetails from "./pages/CourseDetails.jsx";
 import Payment from "./pages/Payment.jsx";
 import Profile from "./pages/Profile.jsx";
 import SecurityGuard from "./components/SecurityGuard.jsx";
+import ChemBotWidget from "./components/ChemBotWidget.jsx";
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
           <AuthProvider>
             <HashRouter>
               <SecurityGuard />
+              <ChemBotWidget />
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login />} />

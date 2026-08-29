@@ -6,11 +6,14 @@ import { addQuizToCourse, subscribeCourses } from "../services/courseService.js"
 import { uploadImageToStorage } from "../services/storageService.js";
 
 const emptyQuestion = () => ({
+  type: "mcq",
   prompt: "",
   questionImageUrl: "",
   choices: ["", "", "", ""],
   correctIndex: 0,
   points: 1,
+  modelAnswer: "",
+  gradingRubric: "",
 });
 
 export default function AddQuizPage() {
@@ -85,8 +88,8 @@ export default function AddQuizPage() {
     if (!courseId) return setError("اختار الكورس الذي سيتم إضافة الكويز بداخله.");
     if (!title.trim()) return setError("اكتب عنوان الكويز.");
     if (questions.some((question) => !question.prompt.trim())) return setError("كل سؤال يحتاج نص واضح.");
-    if (questions.some((question) => question.choices.filter((choice) => choice.trim()).length < 2)) {
-      return setError("كل سؤال يحتاج اختيارين على الأقل.");
+    if (questions.some((question) => question.type !== "essay" && question.choices.filter((choice) => choice.trim()).length < 2)) {
+      return setError("كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل.");
     }
 
     setIsBusy(true);
@@ -98,11 +101,14 @@ export default function AddQuizPage() {
         isMandatory,
         questions: questions.map((question, index) => ({
           questionId: `q${Date.now()}_${index}`,
+          type: question.type || "mcq",
           prompt: question.prompt.trim(),
           questionImageUrl: question.questionImageUrl || "",
-          choices: question.choices.map((choice) => choice.trim()).filter(Boolean),
-          correctIndex: question.correctIndex,
+          choices: question.type === "essay" ? [] : question.choices.map((choice) => choice.trim()).filter(Boolean),
+          correctIndex: question.type === "essay" ? 0 : question.correctIndex,
           points: Number(question.points || 1),
+          modelAnswer: question.type === "essay" ? (question.modelAnswer || "").trim() : null,
+          gradingRubric: question.type === "essay" ? (question.gradingRubric || "").trim() : null,
         })),
       });
       setNotice("تم حفظ الكويز بنجاح داخل الكورس.");
@@ -252,23 +258,54 @@ export default function AddQuizPage() {
 
               {activeQuestion && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <input
-                      type="number"
-                      min="1"
-                      value={activeQuestion.points}
-                      onChange={(event) => updateQuestion(activeQuestionIndex, "points", Number(event.target.value))}
-                      className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-bold outline-none focus:ring-2 focus:ring-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                    />
-                    {questions.length > 1 && (
+                  {/* Type Selector Header */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-100 dark:bg-slate-800 p-3 rounded-2xl">
+                    <div className="flex rounded-xl bg-white dark:bg-slate-900 p-1 border border-slate-200 dark:border-slate-700">
                       <button
                         type="button"
-                        onClick={() => removeQuestion(activeQuestionIndex)}
-                        className="rounded-xl p-2 text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950/30"
+                        onClick={() => updateQuestion(activeQuestionIndex, "type", "mcq")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                          (activeQuestion.type || "mcq") === "mcq"
+                            ? "bg-[#0077B6] text-white"
+                            : "text-slate-500 hover:text-slate-900 dark:text-slate-400"
+                        }`}
                       >
-                        <Trash2 size={17} />
+                        اختيار من متعدد MCQ
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        onClick={() => updateQuestion(activeQuestionIndex, "type", "essay")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                          activeQuestion.type === "essay"
+                            ? "bg-[#FF6B35] text-white"
+                            : "text-slate-500 hover:text-slate-900 dark:text-slate-400"
+                        }`}
+                      >
+                        سؤال مقالي Essay
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-500">النقاط:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={activeQuestion.points}
+                          onChange={(event) => updateQuestion(activeQuestionIndex, "points", Number(event.target.value))}
+                          className="w-16 rounded-xl border border-slate-200 bg-white px-2 py-1 text-center text-xs font-bold outline-none focus:ring-2 focus:ring-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        />
+                      </div>
+                      {questions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeQuestion(activeQuestionIndex)}
+                          className="rounded-xl p-2 text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950/30"
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <textarea
@@ -310,29 +347,55 @@ export default function AddQuizPage() {
                     />
                   )}
 
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {activeQuestion.choices.map((choice, index) => (
-                      <div key={index} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                        <button
-                          type="button"
-                          onClick={() => updateQuestion(activeQuestionIndex, "correctIndex", index)}
-                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${
-                            activeQuestion.correctIndex === index
-                              ? "border-emerald-500 bg-emerald-500 text-white"
-                              : "border-slate-300 text-transparent dark:border-slate-600"
-                          }`}
-                        >
-                          <CheckCircle2 size={15} />
-                        </button>
-                        <input
-                          value={choice}
-                          onChange={(event) => updateChoice(activeQuestionIndex, index, event.target.value)}
-                          placeholder={`اختيار ${index + 1}`}
-                          className="min-w-0 flex-1 bg-transparent text-sm font-bold text-slate-900 outline-none dark:text-white"
+                  {/* Render Essay fields OR MCQ fields */}
+                  {activeQuestion.type === "essay" ? (
+                    <div className="space-y-3 pt-2">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">الإجابة النموذجية (Model Answer):</label>
+                        <textarea
+                          rows={3}
+                          value={activeQuestion.modelAnswer || ""}
+                          onChange={(e) => updateQuestion(activeQuestionIndex, "modelAnswer", e.target.value)}
+                          placeholder="اكتب الإجابة النموذجية للسؤال المقالي لتقييم الذكاء الاصطناعي والمعلم..."
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                         />
                       </div>
-                    ))}
-                  </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">معايير التصحيح (Grading Rubric):</label>
+                        <textarea
+                          rows={2}
+                          value={activeQuestion.gradingRubric || ""}
+                          onChange={(e) => updateQuestion(activeQuestionIndex, "gradingRubric", e.target.value)}
+                          placeholder="اذكر العناصر والمعايير الواجب توفرها في إجابة الطالب للحصول على الدرجة..."
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {activeQuestion.choices.map((choice, index) => (
+                        <div key={index} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <button
+                            type="button"
+                            onClick={() => updateQuestion(activeQuestionIndex, "correctIndex", index)}
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${
+                              activeQuestion.correctIndex === index
+                                ? "border-emerald-500 bg-emerald-500 text-white"
+                                : "border-slate-300 text-transparent dark:border-slate-600"
+                            }`}
+                          >
+                            <CheckCircle2 size={15} />
+                          </button>
+                          <input
+                            value={choice}
+                            onChange={(event) => updateChoice(activeQuestionIndex, index, event.target.value)}
+                            placeholder={`اختيار ${index + 1}`}
+                            className="min-w-0 flex-1 bg-transparent text-sm font-bold text-slate-900 outline-none dark:text-white"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

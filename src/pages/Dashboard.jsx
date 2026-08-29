@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Award, BookOpen, ClipboardCheck, Flame, PlayCircle, TrendingUp, TimerReset, Sparkles } from "lucide-react";
+import { Award, BookOpen, ClipboardCheck, Flame, PlayCircle, TrendingUp, TimerReset, Sparkles, KeyRound } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { subscribeCourses } from "../services/courseService.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
+import RedeemCodeModal from "../components/RedeemCodeModal.jsx";
 
 function formatNumber(value) {
   return new Intl.NumberFormat("ar-EG").format(Number(value || 0));
@@ -20,6 +21,7 @@ function formatDuration(seconds) {
 export default function Dashboard() {
   const { user } = useAuth();
   const [courses, setCourses] = useState([]);
+  const [isRedeemOpen, setIsRedeemOpen] = useState(false);
 
   useEffect(() => subscribeCourses(setCourses), []);
 

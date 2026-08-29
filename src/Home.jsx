@@ -168,12 +168,14 @@ export default function Home() {
   }, [searchOpen]);
   const visibleCourses = useMemo(() => {
     const normalized = searchTerm.trim().toLowerCase();
-    return liveCourses.filter((course) => {
-      if (!normalized) return true;
-      return [course.title, course.description, course.grade].some((value) =>
-        String(value || "").toLowerCase().includes(normalized)
-      );
-    });
+    return liveCourses
+      .filter((course) => !course.isStandalone)
+      .filter((course) => {
+        if (!normalized) return true;
+        return [course.title, course.description, course.grade].some((value) =>
+          String(value || "").toLowerCase().includes(normalized)
+        );
+      });
   }, [liveCourses, searchTerm]);
   const pageCount = Math.max(1, Math.ceil(visibleCourses.length / cardsPerPage));
   const currentPage = Math.min(coursePage, pageCount - 1);
@@ -739,6 +741,59 @@ export default function Home() {
               )}
             </section>
           )}
+
+          {/* --- Grade Category Navigation Section (اختر صفك الدراسي) --- */}
+          <section className="relative z-10 max-w-7xl mx-auto px-6 sm:px-10 py-16 border-t border-slate-100 dark:border-slate-800">
+            <div className="text-center mb-10">
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-slate-100 flex items-center justify-center gap-2">
+                <GraduationCap className="text-[#0077B6] dark:text-[#00A8E8]" size={28} />
+                <span>اختر صفك الدراسي</span>
+              </h2>
+              <p className="text-slate-500 dark:text-slate-400 text-sm mt-2 font-bold">
+                انقر على الصف الدراسي الخاص بك لاستعراض جميع الكورسات المتاحة والمناهج الدراسية
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {[
+                { title: "الصف الأول الثانوي", sub: "علوم متكاملة وكيمياء", count: liveCourses.filter(c => String(c.grade || '').includes("الأول الثانوي")).length },
+                { title: "الصف الثاني الثانوي", sub: "منهج الكيمياء كاملاً", count: liveCourses.filter(c => String(c.grade || '').includes("الثاني الثانوي")).length },
+                { title: "الصف الثالث الثانوي", sub: "كيمياء الثانوية العامة", count: liveCourses.filter(c => String(c.grade || '').includes("الثالث الثانوي")).length },
+                { title: "الصف الثاني بكالوريا", sub: "كيمياء البكالوريا", count: liveCourses.filter(c => String(c.grade || '').includes("الثاني بكالوريا")).length },
+                { title: "الصف الثالث البكالوريا", sub: "منهج البكالوريا الكامل", count: liveCourses.filter(c => String(c.grade || '').includes("الثالث البكالوريا")).length },
+              ].map((item, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => navigate(`/courses?grade=${encodeURIComponent(item.title)}`)}
+                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-[#0077B6] dark:hover:border-[#00A8E8] rounded-3xl p-5 text-right transition-all duration-300 hover:shadow-xl hover:-translate-y-1 flex flex-col justify-between space-y-3 cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-2xl bg-cyan-50 dark:bg-slate-800 text-[#0077B6] dark:text-[#00A8E8] flex items-center justify-center group-hover:bg-[#0077B6] group-hover:text-white transition">
+                      <BookOpen size={20} />
+                    </div>
+                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                      {item.count > 0 ? `${item.count} كورس` : "قريباً"}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="font-black text-sm text-slate-900 dark:text-slate-100 group-hover:text-[#0077B6] dark:group-hover:text-[#00A8E8] transition">
+                      {item.title}
+                    </h3>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 font-bold">
+                      {item.sub}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1 text-[11px] font-extrabold text-[#0077B6] dark:text-[#00A8E8] pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <span>استعرض الكورسات</span>
+                    <ArrowLeft size={12} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
           <section
             id="features"
             className="relative z-10 bg-chem-bg-alt dark:bg-slate-900/60 py-20 border-y border-chem-light/20 dark:border-chem-light/10 transition-colors duration-500"

@@ -46,7 +46,7 @@ export default function CourseDetails() {
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [error, setError] = useState("");
 
-  const isTeacher = user?.role === "teacher" || user?.role === "developer";
+  const isTeacher = ["teacher", "admin", "developer"].includes(String(user?.role || "").toLowerCase());
   const watchedLessons = useMemo(
     () => user?.progress?.[courseId]?.watchedLessons || [],
     [user?.progress, courseId]
@@ -88,7 +88,24 @@ export default function CourseDetails() {
     return [...course.quizzes].sort((a, b) => (a.order || 0) - (b.order || 0));
   }, [course?.quizzes]);
 
-  const contentItems = useMemo(() => buildCourseContent(course || {}), [course]);
+  const rawContentItems = useMemo(() => buildCourseContent(course || {}), [course]);
+
+  const allVideosCount = useMemo(() => rawContentItems.filter((item) => item.type === "video").length, [rawContentItems]);
+  const allResourcesCount = useMemo(() => rawContentItems.filter((item) => item.type === "resource").length, [rawContentItems]);
+  const allQuizzesCount = useMemo(() => rawContentItems.filter((item) => item.type === "quiz").length, [rawContentItems]);
+
+  const userAllowedUnitsForCourse = user?.allowedUnits?.[courseId] || user?.allowedUnits?.[course?.id];
+  const isSelectiveCodeStudent = !isTeacher && Array.isArray(userAllowedUnitsForCourse) && userAllowedUnitsForCourse.length > 0;
+
+  const contentItems = useMemo(() => {
+    if (isTeacher || !isSelectiveCodeStudent) return rawContentItems;
+    // Selective Code student: ONLY show allowed lectures, PDFs, and quizzes!
+    return rawContentItems.filter((item) => {
+      const ids = [item.id, item.unitId, item.lessonId, item.resourceId, item.quizId].filter(Boolean);
+      return ids.some((id) => userAllowedUnitsForCourse.includes(id));
+    });
+  }, [rawContentItems, isTeacher, isSelectiveCodeStudent, userAllowedUnitsForCourse]);
+
   const selectedContent = contentItems[selectedContentIndex] || null;
   const courseQuizResults = user?.quizResults?.[courseId] || {};
   const selectedUnit =
@@ -137,7 +154,11 @@ export default function CourseDetails() {
 
   function closeQuizRunner() {
     const fallbackIndex = contentItems.findIndex((item) => item.type !== "quiz");
-    setSelectedContentIndex(fallbackIndex >= 0 ? fallbackIndex : 0);
+    if (fallbackIndex >= 0 && fallbackIndex !== selectedContentIndex) {
+      setSelectedContentIndex(fallbackIndex);
+    } else {
+      navigate("/courses");
+    }
   }
 
   if (!course) {
@@ -152,6 +173,34 @@ export default function CourseDetails() {
             {error || "جارٍ تحميل تفاصيل الكورس..."}
           </p>
         </main>
+      </div>
+    );
+  }
+
+  const isQuizSelected = selectedContent?.type === "quiz" && selectedUnlocked;
+
+  if (isQuizSelected) {
+    return (
+      <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-['Cairo',sans-serif] transition-colors duration-500">
+        <AppHeader active="/courses" />
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+          <QuizRunner
+            key={`quiz-${selectedContent.quizId || selectedContentIndex}`}
+            quiz={selectedContent}
+            embedded={true}
+            onExit={closeQuizRunner}
+            onSubmit={async (answers, timeSpentSeconds) => {
+              const result = await submitQuizAttempt({
+                uid: user.uid,
+                courseId,
+                quiz: { ...selectedContent, answers },
+                timeSpentSeconds,
+              });
+              await refreshProfile();
+              return result;
+            }}
+          />
+        </div>
       </div>
     );
   }
@@ -200,13 +249,13 @@ export default function CourseDetails() {
               </span>
             )}
             <span className="inline-flex items-center gap-1.5 bg-white/15 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold">
-              <CirclePlay size={13} /> {units.length} فيديو
+              <CirclePlay size={13} /> {allVideosCount} فيديو
             </span>
             <span className="inline-flex items-center gap-1.5 bg-white/15 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold">
-              <FileText size={13} /> {(course.resources || []).length} ملف
+              <FileText size={13} /> {allResourcesCount} ملف
             </span>
             <span className="inline-flex items-center gap-1.5 bg-white/15 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold">
-              <HelpCircle size={13} /> {quizzes.length} كويز
+              <HelpCircle size={13} /> {allQuizzesCount} كويز
             </span>
           </div>
 
@@ -313,25 +362,6 @@ export default function CourseDetails() {
                 فتح الملف
                 <ArrowLeft size={15} />
               </a>
-            </div>
-          ) : selectedContent?.type === "quiz" && selectedUnlocked ? (
-            <div className="p-4">
-              <QuizRunner
-                key={`quiz-${selectedContent.quizId || selectedContentIndex}`}
-                quiz={selectedContent}
-                embedded
-                onExit={closeQuizRunner}
-                onSubmit={async (answers, timeSpentSeconds) => {
-                  const result = await submitQuizAttempt({
-                    uid: user.uid,
-                    courseId,
-                    quiz: { ...selectedContent, answers },
-                    timeSpentSeconds,
-                  });
-                  await refreshProfile();
-                  return result;
-                }}
-              />
             </div>
           ) : (
             /* LOCKED STATE — with price + subscribe */

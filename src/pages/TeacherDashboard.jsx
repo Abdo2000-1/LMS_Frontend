@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   BadgeDollarSign,
@@ -47,13 +47,20 @@ import {
 import { approvePaymentRequest, subscribePaymentRequests, subscribePayments } from "../services/paymentService.js";
 import { uploadFileToStorage, uploadImageToStorage } from "../services/storageService.js";
 import apiClient from "../lib/apiClient.js";
+import AccessCodeManager from "../components/AccessCodeManager.jsx";
+import TeacherEssayGrader from "../components/TeacherEssayGrader.jsx";
+import StandaloneLectureForm from "../components/StandaloneLectureForm.jsx";
+import { KeyRound, FileEdit, Video } from "lucide-react";
 
 const tabs = [
   { id: "courses", label: "الكورسات الحالية", icon: BookOpen },
+  { id: "access-codes", label: "أكواد التفعيل (12 رقم)", icon: KeyRound },
+  { id: "essay-grading", label: "تصحيح الأسئلة المقالية", icon: FileEdit },
   { id: "students", label: "بيانات الطلاب", icon: Users },
   { id: "student-details", label: "تتبع وتفاصيل الطلاب", icon: NotebookText },
   { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet },
   { id: "add-course", label: "إضافة كورس جديد", icon: PlusCircle },
+  { id: "add-standalone-lecture", label: "إضافة محاضرة مستقلة", icon: Video },
   { id: "add-exam", label: "إضافة امتحان جديد", icon: HelpCircle },
 ];
 
@@ -81,8 +88,21 @@ const emptyQuestion = () => ({
 export default function TeacherDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get("tab");
   const isTeacher = user?.role === "teacher";
-  const [activeTab, setActiveTab] = useState("courses");
+  const [activeTab, setActiveTab] = useState(urlTab || "courses");
+
+  useEffect(() => {
+    if (urlTab && urlTab !== activeTab) {
+      setActiveTab(urlTab);
+    }
+  }, [urlTab]);
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setSearchParams({ tab: tabId });
+  };
   const [courses, setCourses] = useState([]);
   const [students, setStudents] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -533,7 +553,7 @@ export default function TeacherDashboard() {
     <DashboardLayout
       active="/teacher/dashboard"
       activeTab={activeTab}
-      onTabChange={setActiveTab}
+      onTabChange={handleTabChange}
       badges={{ pendingRequests: summary.pendingRequests }}
     >
       <div className="space-y-8 font-['Cairo',_sans-serif] text-slate-800" dir="rtl">
@@ -616,6 +636,16 @@ export default function TeacherDashboard() {
             );
           })}
         </div>
+
+        {/* --- TAB: ACCESS CODES --- */}
+        {activeTab === "access-codes" && (
+          <AccessCodeManager courses={courses} />
+        )}
+
+        {/* --- TAB: ESSAY GRADING --- */}
+        {activeTab === "essay-grading" && (
+          <TeacherEssayGrader />
+        )}
 
         {/* --- TAB 1: CURRENT COURSES LIST (GRID view) --- */}
         {activeTab === "courses" && (
@@ -859,7 +889,7 @@ export default function TeacherDashboard() {
               <div className="space-y-6 text-right">
                 
                 {/* Profile card summary */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold">اسم الطالب</span>
                     <p className="text-base font-black text-slate-900 mt-1">{selectedStudentDetail.name}</p>
@@ -869,8 +899,14 @@ export default function TeacherDashboard() {
                     <p className="text-base font-black text-[#0077B6] mt-1">{selectedStudentDetail.studentId || "عشوائي"}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 font-bold">الموبايل والمحافظة</span>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{selectedStudentDetail.phone} · {selectedStudentDetail.governorate}</p>
+                    <span className="text-[10px] text-slate-400 font-bold">موبايل الطالب والولي</span>
+                    <p className="text-xs font-bold text-slate-800 mt-1">الطالب: {selectedStudentDetail.phone}</p>
+                    <p className="text-xs font-extrabold text-[#0077B6]">الولي: {selectedStudentDetail.parentPhone || "غير مسجل"}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold">السنتر والمحافظة</span>
+                    <p className="text-xs font-bold text-slate-800 mt-1">{selectedStudentDetail.center ? `سنتر: ${selectedStudentDetail.center}` : "أونلاين"}</p>
+                    <p className="text-xs font-medium text-slate-500">{selectedStudentDetail.governorate}</p>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold">الحساب</span>
@@ -1017,7 +1053,18 @@ export default function TeacherDashboard() {
           </section>
         )}
 
-        {/* --- TAB 5: ADD COURSE FORM (Sequential FIFO builder) --- */}
+        {/* --- TAB 5.1: DEDICATED STANDALONE LECTURE CREATOR --- */}
+        {activeTab === "add-standalone-lecture" && (
+          <StandaloneLectureForm
+            onSaved={() => {
+              subscribeCourses(setCourses);
+              setActiveTab("courses");
+            }}
+            onCancel={() => setActiveTab("courses")}
+          />
+        )}
+
+        {/* --- TAB 5.2: ADD COURSE FORM (Sequential FIFO builder) --- */}
         {activeTab === "add-course" && (
           <section className="grid grid-cols-1 xl:grid-cols-[1fr_24rem] gap-6">
             
@@ -1049,11 +1096,14 @@ export default function TeacherDashboard() {
                     <select
                       value={courseForm.grade}
                       onChange={(e) => setCourseForm((p) => ({ ...p, grade: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6]"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     >
                       <option>الصف الأول الثانوي</option>
                       <option>الصف الثاني الثانوي</option>
                       <option>الصف الثالث الثانوي</option>
+                      <option>الصف الثاني بكالوريا</option>
+                      <option>الصف الثالث البكالوريا</option>
+                      <option>الصف الثالث الثانوي, الصف الثالث البكالوريا</option>
                     </select>
                   </div>
                   <div>
