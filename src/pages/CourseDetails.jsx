@@ -12,6 +12,7 @@ import {
   Clock,
   Users,
   Star,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import {
@@ -20,6 +21,9 @@ import {
   markLessonCompleted,
   submitQuizAttempt,
   enrollStudentInCourse,
+  deleteQuizFromCourse,
+  deleteLesson,
+  deleteResourceFromCourse,
 } from "../services/courseService.js";
 import AppHeader from "../components/AppHeader.jsx";
 import Footer from "../components/Footer.jsx";
@@ -158,6 +162,28 @@ export default function CourseDetails() {
       setSelectedContentIndex(fallbackIndex);
     } else {
       navigate("/courses");
+    }
+  }
+
+  async function handleDeleteItem(item, e) {
+    if (e) e.stopPropagation();
+    const itemTypeName = item.type === "quiz" ? "الكويز" : item.type === "resource" ? "الملف" : "المحاضرة";
+    if (!window.confirm(`هل أنت متأكد من حذف ${itemTypeName} (${item.title}) نهائياً من الكورس؟`)) return;
+    
+    try {
+      if (item.type === "quiz") {
+        await deleteQuizFromCourse(courseId, item.quizId);
+      } else if (item.type === "resource") {
+        await deleteResourceFromCourse(courseId, item.resourceId);
+      } else if (item.type === "video") {
+        await deleteLesson(item.lessonId);
+      }
+      
+      const refreshed = await getCourseById(courseId, { includeUnpublished: isTeacher });
+      setCourse(refreshed);
+      setSelectedContentIndex(0);
+    } catch (err) {
+      alert(err.message || "تعذر حذف العنصر.");
     }
   }
 
@@ -533,8 +559,18 @@ export default function CourseDetails() {
                     </div>
                   </div>
 
-                  {/* Right icon */}
-                  <div className="shrink-0">
+                  {/* Right icon & Teacher Actions */}
+                  <div className="shrink-0 flex items-center gap-1.5">
+                    {isTeacher && (
+                      <span
+                        role="button"
+                        title="حذف هذا العنصر نهائياً"
+                        onClick={(e) => handleDeleteItem(item, e)}
+                        className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={15} />
+                      </span>
+                    )}
                     {watched ? (
                       <CheckCircle2 size={18} className="text-emerald-500" />
                     ) : !unlocked && !isTeacher ? (

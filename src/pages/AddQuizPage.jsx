@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowRight, CheckCircle2, Clock, HelpCircle, Image, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowRight, BookOpen, CheckCircle2, Clock, HelpCircle, Image, Plus, Trash2, Upload } from "lucide-react";
 import DashboardLayout from "../components/DashboardLayout.jsx";
-import { addQuizToCourse, subscribeCourses } from "../services/courseService.js";
+import { addQuizToCourse, deleteQuizFromCourse, getCourseById, subscribeCourses } from "../services/courseService.js";
 import { uploadImageToStorage } from "../services/storageService.js";
 
 const emptyQuestion = () => ({
@@ -419,6 +419,52 @@ export default function AddQuizPage() {
             </button>
           </aside>
         </form>
+
+        {/* Existing Quizzes in Selected Course */}
+        <div className="mt-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm space-y-4">
+          <h2 className="font-black text-lg text-[#0077B6] flex items-center gap-2">
+            <BookOpen size={18} />
+            الكويزات الحالية في الكورس المختار ({courses.find((c) => c.id === courseId)?.title || "..."})
+          </h2>
+          <div className="space-y-3">
+            {(!courses.find((c) => c.id === courseId)?.quizzes || courses.find((c) => c.id === courseId)?.quizzes?.length === 0) ? (
+              <p className="text-sm text-slate-500">لا توجد كويزات مضافة في هذا الكورس بعد.</p>
+            ) : (
+              courses.find((c) => c.id === courseId)?.quizzes?.map((quiz) => (
+                <div key={quiz.quizId} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100 truncate">{quiz.title}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {quiz.questions?.length || quiz.questionsCount || 0} أسئلة · {quiz.minutes || 15} دقيقة
+                      {quiz.isMandatory ? " · إجباري" : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!confirm(`هل تريد حذف الكويز (${quiz.title}) نهائياً من الكورس؟`)) return;
+                      setIsBusy(true);
+                      try {
+                        await deleteQuizFromCourse(courseId, quiz.quizId);
+                        const refreshed = await getCourseById(courseId, { includeUnpublished: true });
+                        setCourses((prev) => prev.map((c) => (c.id === courseId ? refreshed : c)));
+                        setNotice("تم حذف الكويز بنجاح!");
+                      } catch (err) {
+                        setError(err.message || "تعذر حذف الكويز.");
+                      } finally {
+                        setIsBusy(false);
+                      }
+                    }}
+                    className="rounded-xl p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition"
+                    title="حذف هذا الكويز"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </main>
     </DashboardLayout>
   );
