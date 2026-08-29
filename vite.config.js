@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
 
   const base =
     env.VITE_BASE_PATH ??
-    (process.env.VERCEL ? "/" : mode === "production" ? "/LMS/" : "/");
+    (process.env.VERCEL ? "/" : mode === "production" ? "/LMS_Frontend/" : "/");
 
   return {
     plugins: [react()],

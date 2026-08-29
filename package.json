@@ -2,7 +2,7 @@
   "name": "alostaz-platform",
   "private": true,
   "version": "1.0.0",
-  "homepage": "https://abdo2000-1.github.io/LMS",
+  "homepage": "https://abdo2000-1.github.io/LMS_Frontend",
   "type": "module",
   "scripts": {
     "dev": "vite",
