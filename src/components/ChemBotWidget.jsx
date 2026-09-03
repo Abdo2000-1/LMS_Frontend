@@ -38,12 +38,14 @@ function formatChemText(raw) {
   // Replace superscript charges like ^{+2} or ^{-}
   text = text.replace(/\^\{([^}]*)\}/g, "($1)");
   text = text.replace(/\^([0-9+-])/g, "($1)");
-  // Replace LaTeX arrows and reaction symbols
+  // Replace arrows
   text = text.replace(/\\rightarrow/g, "→")
              .replace(/\\longrightarrow/g, "──>")
              .replace(/\\leftrightarrow/g, "⇌")
              .replace(/\\rightleftharpoons/g, "⇌")
              .replace(/\\to/g, "→")
+             .replace(/-->/g, "──>")
+             .replace(/->/g, "→")
              .replace(/\\times/g, "×")
              .replace(/\\Delta/g, "Δ");
   // Remove $$ and $
@@ -68,9 +70,9 @@ function ChemMessageContent({ content, isUser }) {
         if (!trimmed) return <div key={idx} className="h-1" />;
 
         // Check if the line is a chemical equation
-        const isEquation = (trimmed.includes("→") || trimmed.includes("──>") || trimmed.includes("⇌")) &&
+        const isEquation = (trimmed.includes("→") || trimmed.includes("──>") || trimmed.includes("⇌") || (trimmed.includes("+") && trimmed.includes("="))) &&
                            /[A-Z]/.test(trimmed) &&
-                           !trimmed.includes("منصة") && !trimmed.includes("الدكتور");
+                           !trimmed.includes("منصة") && !trimmed.includes("الدكتور") && !trimmed.includes("أهلاً");
 
         if (isEquation) {
           return (
