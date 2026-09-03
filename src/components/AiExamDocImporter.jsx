@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, FileText, Upload, CheckCircle2, AlertCircle, Loader2, X, Check } from "lucide-react";
-import { parseExamDocument } from "../services/courseService.js";
+import { Sparkles, FileText, Upload, CheckCircle2, AlertCircle, Loader2, X, Check, Edit3 } from "lucide-react";
+import { parseExamDocument, parseExamText } from "../services/courseService.js";
 
 export default function AiExamDocImporter({ onExtracted }) {
+  const [activeTab, setActiveTab] = useState("file"); // "file" | "paste"
+  
+  // File upload states
   const [selectedFile, setSelectedFile] = useState(null);
+  const [pastedText, setPastedText] = useState("");
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -17,7 +21,6 @@ export default function AiExamDocImporter({ onExtracted }) {
   const fileInputRef = useRef(null);
   const aiProgressInterval = useRef(null);
 
-  // Clean up timer on unmount
   useEffect(() => {
     return () => {
       if (aiProgressInterval.current) clearInterval(aiProgressInterval.current);
@@ -29,8 +32,8 @@ export default function AiExamDocImporter({ onExtracted }) {
     if (!file) return;
 
     const ext = file.name.split(".").pop().toLowerCase();
-    if (!["pdf", "docx", "doc", "txt"].includes(ext)) {
-      setError("صيغة الملف غير مدعومة. يرجى اختيار ملف بصيغة PDF أو Word (.docx) أو Text (.txt).");
+    if (!["pdf", "docx", "doc", "txt", "md"].includes(ext)) {
+      setError("صيغة الملف غير مدعومة. الصيغ المدعومة هي: Markdown (.md), PDF (.pdf), Word (.docx), Text (.txt).");
       setSelectedFile(null);
       return;
     }
@@ -59,43 +62,55 @@ export default function AiExamDocImporter({ onExtracted }) {
       setAiPercent((prev) => {
         if (prev < 35) {
           setAiStage("reading");
-          return prev + Math.floor(Math.random() * 6) + 3;
-        } else if (prev < 70) {
+          return prev + Math.floor(Math.random() * 8) + 4;
+        } else if (prev < 75) {
           setAiStage("extracting");
-          return prev + Math.floor(Math.random() * 5) + 2;
+          return prev + Math.floor(Math.random() * 6) + 3;
         } else if (prev < 94) {
           setAiStage("formatting");
-          return prev + Math.floor(Math.random() * 3) + 1;
+          return prev + Math.floor(Math.random() * 4) + 1;
         }
-        return 95; // Hold at 95% until server returns
+        return 95;
       });
-    }, 1200);
+    }, 800);
   }
 
   async function handleStartExtraction() {
-    if (!selectedFile) return;
+    if (activeTab === "file" && !selectedFile) return;
+    if (activeTab === "paste" && !pastedText.trim()) {
+      setError("يرجى لصق نص الامتحان أولاً في المربع أدناه.");
+      return;
+    }
 
     setIsParsing(true);
-    setIsUploading(true);
-    setUploadPercent(0);
-    setAiPercent(0);
-    setAiStage("uploading");
     setError("");
     setSuccessMessage("");
 
     try {
-      const data = await parseExamDocument(selectedFile, (percent) => {
-        setUploadPercent(percent);
-        if (percent >= 100) {
-          setIsUploading(false);
-          startAiProgressSimulation();
-        }
-      });
+      let data = null;
+
+      if (activeTab === "paste") {
+        setUploadPercent(100);
+        setIsUploading(false);
+        startAiProgressSimulation();
+        data = await parseExamText(pastedText.trim());
+      } else {
+        setIsUploading(true);
+        setUploadPercent(0);
+        setAiStage("uploading");
+        data = await parseExamDocument(selectedFile, (percent) => {
+          setUploadPercent(percent);
+          if (percent >= 100) {
+            setIsUploading(false);
+            startAiProgressSimulation();
+          }
+        });
+      }
 
       if (aiProgressInterval.current) clearInterval(aiProgressInterval.current);
 
       if (!data || !data.questions || data.questions.length === 0) {
-        throw new Error("لم يتم العثور على أي أسئلة صالحة داخل الملف المرفق.");
+        throw new Error("لم يتم العثور على أي أسئلة صالحة داخل المستند. تأكد من وضوح الأسئلة والاختيارات.");
       }
 
       setAiPercent(100);
@@ -104,7 +119,7 @@ export default function AiExamDocImporter({ onExtracted }) {
 
       if (onExtracted) {
         onExtracted({
-          title: data.title || selectedFile.name.replace(/\.[^/.]+$/, ""),
+          title: data.title || (selectedFile ? selectedFile.name.replace(/\.[^/.]+$/, "") : "امتحان كيمياء"),
           questions: data.questions,
         });
       }
@@ -113,8 +128,8 @@ export default function AiExamDocImporter({ onExtracted }) {
       const isTimeout = /timeout/i.test(String(err.message || ""));
       setError(
         isTimeout
-          ? "استغرقت معالجة الملف وقتاً أطول من المتوقع نظراً لكبر حجم الملف أو عدد الأسئلة الكبير. يرجى المحاولة مرة أخرى."
-          : (err.message || "حدث خطأ أثناء استخراج الأسئلة بالذكاء الاصطناعي. تأكد من وضوح تنسيق الملف.")
+          ? "استغرقت معالجة الملف وقتاً أطول من المتوقع نظراً لكبر حجم الملف أو ضغط السيرفر. ننصح بنسخ نص الامتحان ولصقه في تبويب 'لصق نص الامتحان' لسرعة فورية (خلال 5 ثوانٍ)."
+          : (err.message || "حدث خطأ أثناء استخراج الأسئلة بالذكاء الاصطناعي.")
       );
       setAiStage("");
     } finally {
@@ -163,86 +178,150 @@ export default function AiExamDocImporter({ onExtracted }) {
               <Sparkles size={19} />
             </div>
             <h3 className="text-base font-black text-slate-900 dark:text-white">
-              استيراد وتوليد الامتحان بالذكاء الاصطناعي من ملف (PDF / Word)
+              استيراد وتوليد الامتحان بالذكاء الاصطناعي (ملفات أو نص مباشر)
             </h3>
             <span className="text-[11px] bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300 font-extrabold px-2.5 py-0.5 rounded-full border border-cyan-200 dark:border-cyan-800">
               ميزة ذكية 🧪
             </span>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
-            ارفع ملف الامتحان كاملاً (PDF أو Word)، وسيقوم الذكاء الاصطناعي بقراءة الامتحان، تحديد كل سؤال واختياراته وتقسيمها، ووضعها داخل الـ Builder أدناه لمراجعتها وتعديلها بالكامل قبل الحفظ.
+            ارفع ملف الامتحان (Markdown .md أو Word أو PDF أو Text)، أو الصق نص الامتحان مباشرة، وسيقوم الذكاء الاصطناعي بقراءة الامتحان وتقسيم كل سؤال مع اختياراته ونقلها مباشرة للـ Builder لمراجعتها وتعديلها بالكامل.
           </p>
         </div>
       </div>
 
-      {/* File Select & Action Bar */}
-      <div className="mt-4 pt-4 border-t border-cyan-200/60 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,.doc,.txt"
-          onChange={handleFileChange}
-          className="hidden"
-          id="ai-exam-doc-upload"
-          disabled={isParsing}
-        />
+      {/* Tabs Switcher: Upload File vs Paste Text */}
+      <div className="mt-4 flex items-center gap-2 border-b border-cyan-200/80 dark:border-slate-800 pb-3">
+        <button
+          type="button"
+          onClick={() => { setActiveTab("file"); setError(""); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition ${
+            activeTab === "file"
+              ? "bg-[#0077B6] text-white shadow-sm"
+              : "bg-white/60 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800"
+          }`}
+        >
+          <Upload size={14} />
+          <span>📁 رفع ملف (PDF, Word, Markdown, Text)</span>
+        </button>
 
-        {!selectedFile ? (
-          <label
-            htmlFor="ai-exam-doc-upload"
-            className="cursor-pointer inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white dark:bg-slate-800 border border-cyan-200 dark:border-slate-700 text-xs font-black text-slate-800 dark:text-slate-200 hover:bg-cyan-50 dark:hover:bg-slate-700/60 transition shadow-sm"
-          >
-            <Upload size={16} className="text-[#0077B6] dark:text-cyan-400" />
-            <span>اختر ملف الامتحان (PDF أو Word)</span>
-          </label>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-slate-800 px-4 py-2 rounded-2xl border border-cyan-200 dark:border-slate-700 shadow-sm">
-            <FileText size={18} className="text-[#0077B6] dark:text-cyan-400 shrink-0" />
-            <span className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[220px]">
-              {selectedFile.name}
-            </span>
-            <span className="text-[11px] font-bold text-slate-400">
-              ({(selectedFile.size / 1024).toFixed(1)} KB)
-            </span>
-            {!isParsing && (
-              <button
-                type="button"
-                onClick={handleRemoveFile}
-                className="text-slate-400 hover:text-red-500 p-1 rounded-lg transition mr-1"
-                title="إلغاء الملف"
-              >
-                <X size={15} />
-              </button>
-            )}
-          </div>
-        )}
-
-        {selectedFile && (
-          <button
-            type="button"
-            onClick={handleStartExtraction}
-            disabled={isParsing}
-            className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white text-xs font-black hover:opacity-95 disabled:opacity-50 transition shadow-md shadow-cyan-500/20"
-          >
-            {isParsing ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                <span>جارٍ المعالجة ({isUploading ? `${uploadPercent}%` : `${aiPercent}%`})...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles size={16} />
-                <span>استخراج الأسئلة بالذكاء الاصطناعي</span>
-              </>
-            )}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => { setActiveTab("paste"); setError(""); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition ${
+            activeTab === "paste"
+              ? "bg-[#0077B6] text-white shadow-sm"
+              : "bg-white/60 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800"
+          }`}
+        >
+          <Edit3 size={14} />
+          <span>📝 لصق نص الامتحان مباشرة (الأسرع فورياً ⚡)</span>
+        </button>
       </div>
+
+      {/* TAB 1: FILE UPLOAD */}
+      {activeTab === "file" && (
+        <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,.doc,.txt,.md"
+            onChange={handleFileChange}
+            className="hidden"
+            id="ai-exam-doc-upload"
+            disabled={isParsing}
+          />
+
+          {!selectedFile ? (
+            <label
+              htmlFor="ai-exam-doc-upload"
+              className="cursor-pointer inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white dark:bg-slate-800 border border-cyan-200 dark:border-slate-700 text-xs font-black text-slate-800 dark:text-slate-200 hover:bg-cyan-50 dark:hover:bg-slate-700/60 transition shadow-sm"
+            >
+              <Upload size={16} className="text-[#0077B6] dark:text-cyan-400" />
+              <span>اختر ملف الامتحان (.md / .docx / .pdf / .txt)</span>
+            </label>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-slate-800 px-4 py-2 rounded-2xl border border-cyan-200 dark:border-slate-700 shadow-sm">
+              <FileText size={18} className="text-[#0077B6] dark:text-cyan-400 shrink-0" />
+              <span className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[220px]">
+                {selectedFile.name}
+              </span>
+              <span className="text-[11px] font-bold text-slate-400">
+                ({(selectedFile.size / 1024).toFixed(1)} KB)
+              </span>
+              {!isParsing && (
+                <button
+                  type="button"
+                  onClick={handleRemoveFile}
+                  className="text-slate-400 hover:text-red-500 p-1 rounded-lg transition mr-1"
+                  title="إلغاء الملف"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+          )}
+
+          {selectedFile && (
+            <button
+              type="button"
+              onClick={handleStartExtraction}
+              disabled={isParsing}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white text-xs font-black hover:opacity-95 disabled:opacity-50 transition shadow-md shadow-cyan-500/20"
+            >
+              {isParsing ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>جارٍ المعالجة ({isUploading ? `${uploadPercent}%` : `${aiPercent}%`})...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  <span>استخراج الأسئلة بالذكاء الاصطناعي</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: DIRECT PASTE TEXT */}
+      {activeTab === "paste" && (
+        <div className="mt-4 space-y-3">
+          <textarea
+            rows={6}
+            value={pastedText}
+            onChange={(e) => setPastedText(e.target.value)}
+            disabled={isParsing}
+            placeholder="الصق نص الامتحان هنا مباشرة (الأسئلة والاختيارات من وورد أو PDF أو ملف Markdown أو أي مصدر)..."
+            className="w-full rounded-2xl border border-cyan-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 p-4 text-xs font-bold leading-relaxed text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20 transition"
+          />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleStartExtraction}
+              disabled={isParsing || !pastedText.trim()}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white text-xs font-black hover:opacity-95 disabled:opacity-50 transition shadow-md shadow-cyan-500/20"
+            >
+              {isParsing ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>جارٍ تحليل النص وتقسيم الأسئلة ({aiPercent}%)...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  <span>استخراج الأسئلة من النص بالذكاء الاصطناعي ⚡</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* --- DETAILED PROGRESS SECTION --- */}
       {isParsing && (
         <div className="mt-4 p-4 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-cyan-200 dark:border-cyan-800 shadow-sm space-y-3">
-          {/* Header info with percentage */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-100">
               <Loader2 size={15} className="animate-spin text-[#0077B6] dark:text-cyan-400 shrink-0" />
@@ -253,7 +332,6 @@ export default function AiExamDocImporter({ onExtracted }) {
             </span>
           </div>
 
-          {/* Primary Progress Bar */}
           <div className="w-full bg-slate-200 dark:bg-slate-700 h-3 rounded-full overflow-hidden p-0.5">
             <div
               className="bg-gradient-to-r from-[#0077B6] via-cyan-400 to-[#00A8E8] h-full rounded-full transition-all duration-300 shadow-sm"
@@ -261,11 +339,10 @@ export default function AiExamDocImporter({ onExtracted }) {
             />
           </div>
 
-          {/* Real Steps indicator */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px] font-bold">
             <div className={`flex items-center gap-1.5 ${uploadPercent >= 100 ? "text-emerald-600 dark:text-emerald-400" : isUploading ? "text-[#0077B6] font-black" : "text-slate-400"}`}>
               {uploadPercent >= 100 ? <Check size={13} className="shrink-0" /> : <span className="w-2 h-2 rounded-full bg-current shrink-0" />}
-              <span>1. رفع الملف ({uploadPercent}%)</span>
+              <span>1. رفع البيانات ({uploadPercent}%)</span>
             </div>
             <div className={`flex items-center gap-1.5 ${aiPercent >= 35 ? "text-emerald-600 dark:text-emerald-400" : aiStage === "reading" ? "text-[#0077B6] font-black animate-pulse" : "text-slate-400"}`}>
               {aiPercent >= 35 ? <Check size={13} className="shrink-0" /> : <span className="w-2 h-2 rounded-full bg-current shrink-0" />}

@@ -632,3 +632,16 @@ export async function parseExamDocument(file, onUploadProgress) {
   }
 }
 
+export async function parseExamText(text, title = "") {
+  try {
+    const { data } = await apiClient.post("/api/exams/parse-text", { text, title }, {
+      ...requestConfig,
+      timeout: 120000,
+    });
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+
