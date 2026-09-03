@@ -122,20 +122,28 @@ export default function TeacherDashboard() {
   const [isBusy, setIsBusy] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
+  // Filter helper to exclude placeholder code-only accounts
+  const isCodeStudent = (s) => {
+    if (!s) return false;
+    const name = String(s.name || s.fullName || "").trim();
+    const email = String(s.email || "").trim().toLowerCase();
+    return name.includes("كود") || name.startsWith("طالب (كود") || email.startsWith("code_") || email.endsWith("@student.lms");
+  };
+
   // Stats / Dashboard calculations
   const summary = useMemo(() => {
     return {
       totalCourses: courses.length,
-      activeStudents: students.filter((student) => !student.isBlocked).length,
+      activeStudents: students.filter((student) => !student.isBlocked && !isCodeStudent(student)).length,
       paidPayments: payments.filter((payment) => payment.status === "paid").length,
       pendingRequests: paymentRequests.filter((request) => request.status === "pending").length,
     };
   }, [courses, payments, paymentRequests, students]);
 
-  // Fetch top 3 governorates dynamically
+  // Fetch top 3 governorates dynamically (excluding code students)
   const topGovernorates = useMemo(() => {
     const counts = {};
-    students.forEach((s) => {
+    students.filter(s => !isCodeStudent(s)).forEach((s) => {
       const gov = (s.governorate || "غير محدد").trim();
       counts[gov] = (counts[gov] || 0) + 1;
     });
@@ -145,7 +153,7 @@ export default function TeacherDashboard() {
   }, [students]);
 
   const governorateOptions = useMemo(() => {
-    return [...new Set(students.map((student) => student.governorate).filter(Boolean))]
+    return [...new Set(students.filter(s => !isCodeStudent(s)).map((student) => student.governorate).filter(Boolean))]
       .sort((a, b) => String(a).localeCompare(String(b), "ar"));
   }, [students]);
 
@@ -155,7 +163,9 @@ export default function TeacherDashboard() {
     const unsubPayments = subscribePayments(setPayments);
     const unsubPaymentRequests = subscribePaymentRequests(setPaymentRequests);
     const unsubAttempts = subscribeQuizAttempts(setAttempts);
-    getTenantStudents().then(setStudents).catch(() => setError("تعذر تحميل قائمة الطلاب."));
+    getTenantStudents()
+      .then((list) => setStudents(list.filter(s => !isCodeStudent(s))))
+      .catch(() => setError("تعذر تحميل قائمة الطلاب."));
     return () => {
       unsubCourses();
       unsubPayments();
@@ -466,12 +476,13 @@ export default function TeacherDashboard() {
   }
 
   function exportStudentsToExcel() {
-    if (!students || students.length === 0) {
+    const realStudents = (students || []).filter(s => !isCodeStudent(s));
+    if (realStudents.length === 0) {
       alert("لا يوجد طلاب مسجلين لتصديرهم.");
       return;
     }
 
-    const dataToExport = students.map((s, index) => ({
+    const dataToExport = realStudents.map((s, index) => ({
       "م": index + 1,
       "اسم الطالب": s.name || "",
       "معرّف الطالب (ID)": s.studentId || "عشوائي",
@@ -590,9 +601,10 @@ export default function TeacherDashboard() {
     }
   }
 
-  // Search filter for students tab
+  // Search filter for students tab (excluding code-only students)
   const filteredStudents = useMemo(() => {
     return students.filter(s => {
+      if (isCodeStudent(s)) return false;
       const term = studentSearch.trim().toLowerCase();
       const matchesGovernorate = !studentGovernorateFilter || s.governorate === studentGovernorateFilter;
       if (!matchesGovernorate) return false;
@@ -787,7 +799,7 @@ export default function TeacherDashboard() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="rounded-2xl bg-cyan-50/50 p-4 border border-cyan-100">
                   <p className="text-xs text-slate-500 font-bold">إجمالي المسجلين بالمنصة</p>
-                  <p className="text-3xl font-black text-[#0077B6] mt-2">{students.length} طالب</p>
+                  <p className="text-3xl font-black text-[#0077B6] mt-2">{students.filter(s => !isCodeStudent(s)).length} طالب</p>
                 </div>
                 <div className="rounded-2xl bg-cyan-50/50 p-4 border border-cyan-100 text-right space-y-1">
                   <p className="text-xs text-slate-500 font-bold">أكثر المحافظات تواجداً</p>
@@ -980,7 +992,7 @@ export default function TeacherDashboard() {
                     onChange={(e) => setSelectedStudentId(e.target.value)}
                     className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-extrabold outline-none bg-slate-50 focus:border-[#0077B6]"
                   >
-                    {students.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.phone})</option>)}
+                    {students.filter(s => !isCodeStudent(s)).map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.phone})</option>)}
                   </select>
                 </div>
               </div>

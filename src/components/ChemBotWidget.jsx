@@ -55,7 +55,7 @@ function formatChemText(raw) {
   text = text.replace(/\^\{([^}]*)\}/g, "($1)");
   text = text.replace(/\^([0-9+-])/g, "($1)");
 
-  // 7. Reaction conditions in braces: {Δ} or {CaO / Δ} -> ──(Δ)──>
+  // 7. Reaction conditions in braces: {Δ} or {تسخين شديد} -> ──(تسخين شديد)──>
   text = text.replace(/\{\s*Δ\s*\}/g, " ──(Δ)──> ");
   text = text.replace(/\{\s*([^}]+)\s*\}/g, " ──($1)──> ");
 
@@ -77,7 +77,40 @@ function formatChemText(raw) {
   text = text.replace(/\$\$/g, "").replace(/\$/g, "");
   text = text.replace(/\\[a-zA-Z]+/g, "");
 
-  return text.replace(/\s+/g, " ").trim();
+  // 10. Auto-subscript digits following chemical elements: O2 -> O₂, H2O -> H₂O, CO2 -> CO₂
+  text = text.replace(/([A-Z][a-z]?)([0-9]+)/g, (_, el, num) => {
+    return el + num.split("").map(c => SUB_MAP[c] || c).join("");
+  });
+
+  // 11. SEPARATION & FORMATTING (Preserve newlines!)
+  // Separate horizontal lines
+  text = text.replace(/\s*---\s*/g, "\n\n---\n\n");
+
+  // Separate emojis that start tips
+  text = text.replace(/([^\n])\s*(💡|📌|⚠️|🧪|✨|🔹|🔸)/g, "$1\n\n$2");
+
+  // If an equation is embedded inside an explanatory sentence, put the equation on its OWN line!
+  text = text.replace(/([^:\n]+[:：])\s*([0-9A-Z][^\n]+?(?:──>|→|⇌)[^\n]*)/g, "$1\n\n$2\n\n");
+
+  // Clean horizontal whitespace per line (keep newlines intact!)
+  text = text.split("\n").map(l => l.replace(/[ \t]+/g, " ").trim()).join("\n");
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  return text.trim();
+}
+
+function renderFormattedLine(trimmed) {
+  const parts = trimmed.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, pIdx) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={pIdx} className="font-black text-slate-900 dark:text-white">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
 }
 
 function ChemMessageContent({ content, isUser }) {
@@ -89,42 +122,50 @@ function ChemMessageContent({ content, isUser }) {
   const lines = cleaned.split("\n");
 
   return (
-    <div className="space-y-1.5 text-xs leading-relaxed">
+    <div className="space-y-2 text-xs sm:text-[13px] leading-relaxed">
       {lines.map((line, idx) => {
         const trimmed = line.trim();
-        if (!trimmed) return <div key={idx} className="h-1" />;
+        if (!trimmed) return <div key={idx} className="h-1.5" />;
 
-        // Check if the line is a chemical equation
+        // Horizontal divider
+        if (trimmed === "---") {
+          return <hr key={idx} className="my-2.5 border-cyan-100 dark:border-slate-800" />;
+        }
+
+        // Chemical equation block (isolated, centered, on a single line with nowrap)
         const isEquation = (trimmed.includes("→") || trimmed.includes("──>") || trimmed.includes("⇌") || (trimmed.includes("+") && trimmed.includes("="))) &&
-                           /[A-Z]/.test(trimmed) &&
-                           !trimmed.includes("منصة") && !trimmed.includes("الدكتور") && !trimmed.includes("أهلاً");
+                           /[A-Z]/.test(trimmed);
 
         if (isEquation) {
           return (
             <div
               key={idx}
               dir="ltr"
-              className="my-2 p-2.5 rounded-xl bg-cyan-50/80 dark:bg-slate-900/90 border border-cyan-200 dark:border-cyan-800 text-[#0077B6] dark:text-cyan-300 font-mono text-center text-xs tracking-wider shadow-inner font-extrabold select-all overflow-x-auto"
+              className="my-3 p-3 rounded-2xl bg-cyan-50/90 dark:bg-slate-900/90 border-2 border-cyan-300 dark:border-cyan-700 text-[#0077B6] dark:text-cyan-300 font-mono text-center text-xs sm:text-sm font-black tracking-wider shadow-sm select-all overflow-x-auto whitespace-nowrap"
             >
               {trimmed}
             </div>
           );
         }
 
-        // Render markdown bold text
-        const parts = trimmed.split(/(\*\*[^*]+\*\*)/g);
+        // Tip or Note box (starts with 💡 or 📌 or ⚠️ or معلومة)
+        const isTip = trimmed.startsWith("💡") || trimmed.startsWith("📌") || trimmed.startsWith("⚠️") || trimmed.startsWith("معلومة كيميائية");
+        if (isTip) {
+          return (
+            <div
+              key={idx}
+              className="my-2.5 p-3 rounded-2xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 text-amber-900 dark:text-amber-200 text-xs font-semibold leading-relaxed shadow-sm"
+            >
+              {renderFormattedLine(trimmed)}
+            </div>
+          );
+        }
+
+        // Standard text paragraph / Bullet point
+        const isBullet = trimmed.startsWith("-") || trimmed.startsWith("•") || trimmed.startsWith("*");
         return (
-          <p key={idx} className={trimmed.startsWith("-") || trimmed.startsWith("•") ? "pr-2" : ""}>
-            {parts.map((part, pIdx) => {
-              if (part.startsWith("**") && part.endsWith("**")) {
-                return (
-                  <strong key={pIdx} className="font-black text-slate-900 dark:text-white">
-                    {part.slice(2, -2)}
-                  </strong>
-                );
-              }
-              return part;
-            })}
+          <p key={idx} className={`${isBullet ? "pr-3 font-medium" : "font-normal"} text-slate-800 dark:text-slate-200`}>
+            {renderFormattedLine(trimmed)}
           </p>
         );
       })}

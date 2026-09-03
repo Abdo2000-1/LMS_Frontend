@@ -553,7 +553,14 @@ export function subscribeQuizAttempts(callback) {
 export async function getTenantStudents() {
   try {
     const { data } = await apiClient.get("/api/users/students", requestConfig);
-    return Array.isArray(data) ? data : [];
+    const list = Array.isArray(data) ? data : [];
+    // Filter out code-only placeholder accounts (e.g. "طالب (كود ...)")
+    return list.filter(s => {
+      const name = String(s.name || s.fullName || "").trim();
+      const email = String(s.email || "").trim().toLowerCase();
+      const isCode = name.includes("كود") || name.startsWith("طالب (كود") || email.startsWith("code_") || email.endsWith("@student.lms");
+      return !isCode;
+    });
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
