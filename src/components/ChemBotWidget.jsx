@@ -25,6 +25,86 @@ const QUICK_PROMPTS = [
   "ما هو الفرق بين الخلية الجلفانية والإلكتروليتية؟"
 ];
 
+const SUB_MAP = { "0":"₀","1":"₁","2":"₂","3":"₃","4":"₄","5":"₅","6":"₆","7":"₇","8":"₈","9":"₉" };
+
+function formatChemText(raw) {
+  if (!raw) return "";
+  let text = raw;
+  // Replace \text{...}, \mathrm{...}, \mathbf{...}, \ce{...}
+  text = text.replace(/\\(?:text|mathrm|mathbf|ce|mathit)\{([^}]*)\}/g, "$1");
+  // Replace subscript digits like _{12} or _2 with unicode subscripts
+  text = text.replace(/_\{(\d+)\}/g, (_, d) => d.split("").map(c => SUB_MAP[c] || c).join(""));
+  text = text.replace(/_(\d)/g, (_, d) => SUB_MAP[d] || d);
+  // Replace superscript charges like ^{+2} or ^{-}
+  text = text.replace(/\^\{([^}]*)\}/g, "($1)");
+  text = text.replace(/\^([0-9+-])/g, "($1)");
+  // Replace LaTeX arrows and reaction symbols
+  text = text.replace(/\\rightarrow/g, "→")
+             .replace(/\\longrightarrow/g, "──>")
+             .replace(/\\leftrightarrow/g, "⇌")
+             .replace(/\\rightleftharpoons/g, "⇌")
+             .replace(/\\to/g, "→")
+             .replace(/\\times/g, "×")
+             .replace(/\\Delta/g, "Δ");
+  // Remove $$ and $
+  text = text.replace(/\$\$/g, "").replace(/\$/g, "");
+  // Clean dangling backslashes
+  text = text.replace(/\\[a-zA-Z]+/g, "");
+  return text;
+}
+
+function ChemMessageContent({ content, isUser }) {
+  const cleaned = formatChemText(content);
+  if (isUser) {
+    return <div className="whitespace-pre-wrap">{cleaned}</div>;
+  }
+
+  const lines = cleaned.split("\n");
+
+  return (
+    <div className="space-y-1.5 text-xs leading-relaxed">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={idx} className="h-1" />;
+
+        // Check if the line is a chemical equation
+        const isEquation = (trimmed.includes("→") || trimmed.includes("──>") || trimmed.includes("⇌")) &&
+                           /[A-Z]/.test(trimmed) &&
+                           !trimmed.includes("منصة") && !trimmed.includes("الدكتور");
+
+        if (isEquation) {
+          return (
+            <div
+              key={idx}
+              dir="ltr"
+              className="my-2 p-2.5 rounded-xl bg-cyan-50/80 dark:bg-slate-900/90 border border-cyan-200 dark:border-cyan-800 text-[#0077B6] dark:text-cyan-300 font-mono text-center text-xs tracking-wider shadow-inner font-extrabold select-all overflow-x-auto"
+            >
+              {trimmed}
+            </div>
+          );
+        }
+
+        // Render markdown bold text
+        const parts = trimmed.split(/(\*\*[^*]+\*\*)/g);
+        return (
+          <p key={idx} className={trimmed.startsWith("-") || trimmed.startsWith("•") ? "pr-2" : ""}>
+            {parts.map((part, pIdx) => {
+              if (part.startsWith("**") && part.endsWith("**")) {
+                return (
+                  <strong key={pIdx} className="font-black text-slate-900 dark:text-white">
+                    {part.slice(2, -2)}
+                  </strong>
+                );
+              }
+              return part;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ChemBotWidget({ courseId = null }) {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -227,7 +307,7 @@ export default function ChemBotWidget({ courseId = null }) {
                           : "bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-100 dark:border-slate-700 rounded-bl-none"
                       }`}
                     >
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                      <ChemMessageContent content={msg.content} isUser={isUser} />
 
                       {/* Source lectures badge */}
                       {!isUser && msg.sourceLectures && msg.sourceLectures.length > 0 && (

@@ -22,8 +22,11 @@ import {
   Mail,
   Phone,
   AlertTriangle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  MessageCircle,
+  Download,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import {
@@ -446,6 +449,65 @@ export default function TeacherDashboard() {
     await refreshCourseCard(refreshed);
   }
 
+  function openWhatsAppParent(parentPhone, studentName, studentId) {
+    if (!parentPhone || parentPhone === "غير مسجل") {
+      alert("رقم ولي الأمر غير مسجل لهذا الطالب.");
+      return;
+    }
+    let cleanPhone = String(parentPhone).replace(/\D/g, "");
+    if (cleanPhone.startsWith("0")) {
+      cleanPhone = "20" + cleanPhone.slice(1);
+    } else if (!cleanPhone.startsWith("20") && cleanPhone.length === 10) {
+      cleanPhone = "20" + cleanPhone;
+    }
+    const message = `مساء الخير يا فندم، معاك تيم متابعة دكتور مينا موريد بخصوص الطالب: ${studentName || ""} (كود الطالب: ${studentId || "---"}). نحب نطمن حضرتك على مستواه ومتابعته للكيمياء على المنصة.`;
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank");
+  }
+
+  function exportStudentsToExcel() {
+    if (!students || students.length === 0) {
+      alert("لا يوجد طلاب مسجلين لتصديرهم.");
+      return;
+    }
+
+    const dataToExport = students.map((s, index) => ({
+      "م": index + 1,
+      "اسم الطالب": s.name || "",
+      "معرّف الطالب (ID)": s.studentId || "عشوائي",
+      "رقم هاتف الطالب": s.phone || "",
+      "رقم هاتف ولي الأمر": s.parentPhone || "غير مسجل",
+      "المحافظة": s.governorate || "",
+      "السنتر / أونلاين": s.center ? `سنتر ${s.center}` : "أونلاين",
+      "الصف الدراسي": s.grade || "",
+      "البريد الإلكتروني": s.email || "",
+      "حالة الحساب": s.isBlocked ? "مطرود من المنصة" : "نشط ومفعل",
+      "عدد الكورسات": s.enrolledCourses ? s.enrolledCourses.length : 0,
+      "تاريخ التسجيل": s.createdAt ? new Date(s.createdAt).toLocaleDateString("ar-EG") : ""
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    worksheet["!cols"] = [
+      { wch: 5 },
+      { wch: 25 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 20 },
+      { wch: 15 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 28 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 16 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "بيانات الطلاب");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `شيت_بيانات_الطلاب_${dateStr}.xlsx`);
+  }
+
   // Create Exam Form MCQ Questions helper
   function updateExamQuestion(qIdx, field, val) {
     setExamForm(prev => {
@@ -742,22 +804,34 @@ export default function TeacherDashboard() {
 
               {/* Scrollable stack of student cards */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-black text-slate-900">سجل الطلاب بالكامل</h3>
-                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                    <div className="relative w-full sm:w-56">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">سجل الطلاب بالكامل</h3>
+                    <p className="text-[11px] text-slate-400 font-bold">إجمالي الطلاب: {students.length} طالب</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={exportStudentsToExcel}
+                      className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-3.5 py-2 rounded-xl shadow-sm transition"
+                      title="تحميل شيت إكسيل يحتوي على جميع بيانات الطلاب وأولياء أمورهم"
+                    >
+                      <Download size={14} />
+                      استخراج شيت إكسيل لبيانات الطلاب
+                    </button>
+                    <div className="relative w-full sm:w-44">
                       <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
                         value={studentSearch}
                         onChange={(e) => setStudentSearch(e.target.value)}
-                        placeholder="بحث بالاسم أو ID أو الموبايل..."
+                        placeholder="بحث بالاسم أو ID..."
                         className="w-full text-xs rounded-xl border border-slate-200 pr-8 pl-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                       />
                     </div>
                     <select
                       value={studentGovernorateFilter}
                       onChange={(e) => setStudentGovernorateFilter(e.target.value)}
-                      className="w-full sm:w-44 text-xs rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      className="w-full sm:w-36 text-xs rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     >
                       <option value="">كل المحافظات</option>
                       {governorateOptions.map((governorate) => (
@@ -784,7 +858,21 @@ export default function TeacherDashboard() {
                               ID: {s.studentId || "عشوائي"}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 font-bold">{s.phone} · {s.governorate} · {s.grade}</p>
+                          <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 font-bold">
+                            <span>الطالب: {s.phone}</span>
+                            {s.parentPhone && s.parentPhone !== "غير مسجل" && (
+                              <button
+                                type="button"
+                                onClick={() => openWhatsAppParent(s.parentPhone, s.name, s.studentId)}
+                                className="text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1 font-black"
+                                title="مراسلة ولي الأمر على واتساب فوراً"
+                              >
+                                <MessageCircle size={13} className="text-emerald-500" />
+                                الولي: {s.parentPhone}
+                              </button>
+                            )}
+                            <span>· {s.governorate} · {s.grade}</span>
+                          </div>
                           <p className="text-[11px] text-slate-400">
                             حالة الكورسات السابقة:{" "}
                             <span className={enrolledBefore ? "text-emerald-600 font-black" : "text-slate-400 font-bold"}>
@@ -867,19 +955,34 @@ export default function TeacherDashboard() {
         {/* --- TAB 3: DETAILED STUDENT TRACKING AND PROGRESS REPORT --- */}
         {activeTab === "student-details" && (
           <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row items-center justify-between border-b border-slate-100 pb-4 gap-3">
-              <h2 className="text-xl font-black text-[#0077B6]">بيانات الطلاب والتتبع الدراسي التفصيلي</h2>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
+              <div>
+                <h2 className="text-xl font-black text-[#0077B6]">بيانات الطلاب والتتبع الدراسي التفصيلي</h2>
+                <p className="text-xs text-slate-400 mt-0.5">متابعة دقيقة لمستوى الطالب وكورساته والامتحانات</p>
+              </div>
               
-              {/* Select student to review */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-500">الطالب الحالي:</span>
-                <select
-                  value={selectedStudentId}
-                  onChange={(e) => setSelectedStudentId(e.target.value)}
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-extrabold outline-none bg-slate-50 focus:border-[#0077B6]"
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={exportStudentsToExcel}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2 rounded-xl shadow-sm transition"
+                  title="تحميل شيت إكسيل يحتوي على جميع بيانات الطلاب وأولياء أمورهم"
                 >
-                  {students.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.phone})</option>)}
-                </select>
+                  <Download size={14} />
+                  استخراج شيت إكسيل لبيانات الطلاب
+                </button>
+
+                {/* Select student to review */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">الطالب:</span>
+                  <select
+                    value={selectedStudentId}
+                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-extrabold outline-none bg-slate-50 focus:border-[#0077B6]"
+                  >
+                    {students.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.phone})</option>)}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -901,7 +1004,19 @@ export default function TeacherDashboard() {
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold">موبايل الطالب والولي</span>
                     <p className="text-xs font-bold text-slate-800 mt-1">الطالب: {selectedStudentDetail.phone}</p>
-                    <p className="text-xs font-extrabold text-[#0077B6]">الولي: {selectedStudentDetail.parentPhone || "غير مسجل"}</p>
+                    {selectedStudentDetail.parentPhone && selectedStudentDetail.parentPhone !== "غير مسجل" ? (
+                      <button
+                        type="button"
+                        onClick={() => openWhatsAppParent(selectedStudentDetail.parentPhone, selectedStudentDetail.name, selectedStudentDetail.studentId)}
+                        title="مراسلة ولي الأمر على واتساب فوراً"
+                        className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-600 hover:text-emerald-700 hover:underline mt-1 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 transition"
+                      >
+                        <MessageCircle size={13} className="text-emerald-500 shrink-0" />
+                        الولي: {selectedStudentDetail.parentPhone} (واتساب)
+                      </button>
+                    ) : (
+                      <p className="text-xs font-extrabold text-slate-400 mt-1">الولي: غير مسجل</p>
+                    )}
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold">السنتر والمحافظة</span>
