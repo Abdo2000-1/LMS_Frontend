@@ -420,6 +420,15 @@ export function subscribeExams(callback, includeUnpublished = false) {
   };
 }
 
+export async function getExamById(examId) {
+  try {
+    const { data } = await apiClient.get(`/api/exams/${examId}`, requestConfig);
+    return mapExam(data);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
 // ─── Resources ──────────────────────────────────────────────────
 
 export async function addResourceToCourse(courseId, resourcePayload) {

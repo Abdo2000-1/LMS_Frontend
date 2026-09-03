@@ -27,9 +27,8 @@ import {
 } from "lucide-react";
 import ThemeToggle from "./components/ThemeToggle.jsx";
 import Footer from "./components/Footer.jsx";
-import QuizRunner from "./components/QuizRunner.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
-import { subscribeCourses, subscribeExams, submitExamAttempt } from "./services/courseService.js";
+import { subscribeCourses, subscribeExams } from "./services/courseService.js";
 import logoImage from "../images/1.jpeg";
 import teacherHeroImage from "../images/2.png";
 const BRAND_NAME = "Mena Mourid";
@@ -124,7 +123,6 @@ export default function Home() {
   const [coursePage, setCoursePage] = useState(0);
   const [liveExams, setLiveExams] = useState([]);
   const [examPage, setExamPage] = useState(0);
-  const [activeExam, setActiveExam] = useState(null);
   const dashboardPath = getLandingRouteByRole(user?.role);
   const isTeacherUser = user?.role === "teacher" || user?.role === "developer";
   useEffect(() => {
@@ -694,7 +692,7 @@ export default function Home() {
                             if (!isAuthenticated) {
                               navigate("/login");
                             } else {
-                              setActiveExam(exam);
+                              navigate(`/exam/${exam.id}`);
                             }
                           }}
                           className="mt-auto text-center border border-chem-cta text-chem-cta rounded-lg py-2 text-sm font-extrabold hover:bg-chem-cta hover:text-white transition-all duration-300 active:scale-[0.97]"
@@ -885,20 +883,6 @@ export default function Home() {
           </section>
         </main>
         <Footer />
-        
-        {activeExam && (
-          <QuizRunner
-            quiz={{
-              ...activeExam,
-              quizId: activeExam.id,
-              isMandatory: false,
-            }}
-            onExit={() => setActiveExam(null)}
-            onSubmit={async (answers, timeSpentSeconds) => {
-              return await submitExamAttempt({ examId: activeExam.id, answers, timeSpentSeconds });
-            }}
-          />
-        )}
       </div>
     </div>
   );

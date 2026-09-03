@@ -17,6 +17,7 @@ import Courses from "./pages/Courses.jsx";
 import CourseDetails from "./pages/CourseDetails.jsx";
 import Payment from "./pages/Payment.jsx";
 import Profile from "./pages/Profile.jsx";
+import TakeExamPage from "./pages/TakeExamPage.jsx";
 import SecurityGuard from "./components/SecurityGuard.jsx";
 import ChemBotWidget from "./components/ChemBotWidget.jsx";
 
@@ -102,6 +103,14 @@ export default function App() {
                   element={
                     <ProtectedRoute>
                       <Profile />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/exam/:examId"
+                  element={
+                    <ProtectedRoute>
+                      <TakeExamPage />
                     </ProtectedRoute>
                   }
                 />
