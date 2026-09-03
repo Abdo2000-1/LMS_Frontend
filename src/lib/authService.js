@@ -170,11 +170,13 @@ export async function refreshProfileRequest() {
 /**
  * Update display name.
  */
-export async function updateProfileRequest({ name }) {
+export async function updateProfileRequest({ name, parentPhone }) {
   try {
-    const { data } = await apiClient.patch("/api/auth/me", {
-      name: String(name || "").trim(),
-    }, requestConfig);
+    const payload = {};
+    if (name !== undefined) payload.name = String(name || "").trim();
+    if (parentPhone !== undefined) payload.parentPhone = String(parentPhone || "").trim();
+
+    const { data } = await apiClient.patch("/api/auth/me", payload, requestConfig);
     const user = mapUserProfile(data);
     storeUser(user);
     return { user };

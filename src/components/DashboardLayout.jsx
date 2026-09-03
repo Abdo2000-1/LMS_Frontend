@@ -126,10 +126,17 @@ export default function DashboardLayout({ active, activeTab, onTabChange, badges
                   </Link>
                   <Link
                     to="/profile"
-                    className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-extrabold text-slate-600 hover:bg-chem-bg-alt dark:text-slate-300 dark:hover:bg-slate-800"
+                    className="flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-extrabold text-slate-600 hover:bg-chem-bg-alt dark:text-slate-300 dark:hover:bg-slate-800"
                   >
-                    <UserCircle size={19} className="text-chem-deep dark:text-chem-light" />
-                    <span>الملف الشخصي</span>
+                    <div className="flex items-center gap-3">
+                      <UserCircle size={19} className="text-chem-deep dark:text-chem-light" />
+                      <span>الملف الشخصي</span>
+                    </div>
+                    {!user?.parentPhone && (
+                      <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black animate-pulse">
+                        تعديل البيانات
+                      </span>
+                    )}
                   </Link>
                 </>
               )}

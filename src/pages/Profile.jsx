@@ -10,6 +10,7 @@ export default function Profile() {
   const { user, logout, updateProfile } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState(user?.name || "");
+  const [parentPhone, setParentPhone] = useState(user?.parentPhone || "");
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [serverError, setServerError] = useState("");
@@ -21,11 +22,31 @@ export default function Profile() {
       return;
     }
 
+    const payload = { name: name.trim() };
+
+    // If student has no parent phone, require it and validate
+    if (user?.role === "student" && !user?.parentPhone) {
+      if (!parentPhone.trim()) {
+        setServerError("يرجى إدخال رقم هاتف ولي الأمر.");
+        return;
+      }
+      const digits = parentPhone.replace(/\D/g, "");
+      if (digits.length !== 11 || !["010", "011", "012", "015"].some((p) => digits.startsWith(p))) {
+        setServerError("رقم ولي الأمر يجب أن يكون رقم هاتف مصري مكون من 11 رقماً يبدأ بـ (010, 011, 012, 015).");
+        return;
+      }
+      if (user?.phone && digits === user.phone.replace(/\D/g, "")) {
+        setServerError("رقم ولي الأمر لا يمكن أن يكون هو نفس رقم هاتف الطالب.");
+        return;
+      }
+      payload.parentPhone = digits;
+    }
+
     setIsSaving(true);
     setSaved(false);
     setServerError("");
     try {
-      await updateProfile({ name: name.trim() });
+      await updateProfile(payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (error) {
@@ -109,6 +130,45 @@ export default function Profile() {
                 />
               </div>
             </div>
+
+            {user?.role === "student" && (
+              <div>
+                <label className="block text-sm font-bold mb-1.5 flex items-center justify-between">
+                  <span>رقم هاتف ولي الأمر</span>
+                  {!user?.parentPhone && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400 font-extrabold bg-amber-100 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full">
+                      ⚠️ مطلوب إضافته (تعديل البيانات)
+                    </span>
+                  )}
+                </label>
+                <div className="relative">
+                  <Phone size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="tel"
+                    dir="ltr"
+                    value={user?.parentPhone ? user.parentPhone : parentPhone}
+                    disabled={Boolean(user?.parentPhone)}
+                    onChange={(e) => {
+                      if (!user?.parentPhone) {
+                        setParentPhone(e.target.value.replace(/\D/g, "").slice(0, 11));
+                        if (serverError) setServerError("");
+                      }
+                    }}
+                    placeholder="010XXXXXXXX"
+                    className={`w-full rounded-xl border pr-11 pl-4 py-3 text-sm font-bold font-mono outline-none transition-all duration-200 ${
+                      user?.parentPhone
+                        ? "border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 cursor-not-allowed"
+                        : "border-amber-400 dark:border-amber-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-400 shadow-sm"
+                    }`}
+                  />
+                </div>
+                {!user?.parentPhone && (
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-bold">
+                    لم تسجل رقم ولي الأمر بعد. يرجى إدخاله والضغط على "حفظ التعديلات" بالأسفل.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-bold mb-1.5">البريد الإلكتروني</label>

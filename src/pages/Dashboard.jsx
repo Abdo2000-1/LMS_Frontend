@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { subscribeCourses } from "../services/courseService.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import RedeemCodeModal from "../components/RedeemCodeModal.jsx";
+import ParentPhoneAlertModal from "../components/ParentPhoneAlertModal.jsx";
 
 function formatNumber(value) {
   return new Intl.NumberFormat("ar-EG").format(Number(value || 0));
@@ -78,6 +79,7 @@ export default function Dashboard() {
   return (
     <DashboardLayout active="/dashboard">
       <div className="space-y-8">
+        <ParentPhoneAlertModal />
         <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950">
           <div className="grid gap-0 lg:grid-cols-[1.3fr_0.7fr]">
             <div className="relative bg-gradient-to-l from-[#0077B6] via-[#00A8E8] to-[#38D9C8] p-6 sm:p-8 text-white">
