@@ -608,15 +608,22 @@ export async function deleteExam(examId) {
   }
 }
 
-export async function parseExamDocument(file) {
+export async function parseExamDocument(file, onUploadProgress) {
   try {
     const formData = new FormData();
     formData.append("file", file);
     const { data } = await apiClient.post("/api/exams/parse-document", formData, {
       ...requestConfig,
+      timeout: 240000, // 4 minutes timeout for deep AI analysis of large exams
       headers: {
         ...requestConfig.headers,
         "Content-Type": "multipart/form-data",
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onUploadProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onUploadProgress(percent);
+        }
       },
     });
     return data;
