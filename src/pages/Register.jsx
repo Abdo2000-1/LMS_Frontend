@@ -189,11 +189,21 @@ export default function Register() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim()))
       errs.email = "صيغة البريد الإلكتروني غير صحيحة";
 
-    if (!phoneDigits) errs.phone = "من فضلك اكتب رقم الموبايل";
-    else if (phoneDigits.length < 11) errs.phone = "رقم الموبايل غير صحيح";
+    const egPhoneRegex = /^01[0125][0-9]{8}$/;
 
-    if (!parentPhoneDigits) errs.parentPhone = "من فضلك اكتب رقم ولي الأمر";
-    else if (parentPhoneDigits.length < 11) errs.parentPhone = "رقم ولي الأمر غير صحيح";
+    if (!phoneDigits) {
+      errs.phone = "من فضلك اكتب رقم الموبايل";
+    } else if (!egPhoneRegex.test(phoneDigits)) {
+      errs.phone = "رقم الموبايل يجب أن يكون رقم مصري صحيح (11 رقم يبدأ بـ 010 أو 011 أو 012 أو 015)";
+    }
+
+    if (!parentPhoneDigits) {
+      errs.parentPhone = "من فضلك اكتب رقم ولي الأمر";
+    } else if (!egPhoneRegex.test(parentPhoneDigits)) {
+      errs.parentPhone = "رقم ولي الأمر يجب أن يكون رقم مصري صحيح (11 رقم يبدأ بـ 010 أو 011 أو 012 أو 015)";
+    } else if (parentPhoneDigits === phoneDigits) {
+      errs.parentPhone = "رقم ولي الأمر يجب أن يكون مختلفاً تماماً عن رقم هاتف الطالب";
+    }
 
     if (!values.grade) errs.grade = "من فضلك اختار الصف الدراسي";
     if (!values.governorate) errs.governorate = "من فضلك اختار المحافظة";

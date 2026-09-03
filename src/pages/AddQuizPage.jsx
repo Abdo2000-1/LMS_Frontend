@@ -4,6 +4,7 @@ import { ArrowRight, BookOpen, CheckCircle2, Clock, HelpCircle, Image, Plus, Tra
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import { addQuizToCourse, deleteQuizFromCourse, getCourseById, subscribeCourses } from "../services/courseService.js";
 import { uploadImageToStorage } from "../services/storageService.js";
+import AiExamDocImporter from "../components/AiExamDocImporter.jsx";
 
 const emptyQuestion = () => ({
   type: "mcq",
@@ -43,6 +44,26 @@ export default function AddQuizPage() {
     () => questions.reduce((sum, question) => sum + Number(question.points || 1), 0),
     [questions]
   );
+
+  function handleQuestionsExtracted({ title: extractedTitle, questions: extractedQuestions }) {
+    if (extractedTitle && !title.trim()) {
+      setTitle(extractedTitle);
+    }
+    if (extractedQuestions && extractedQuestions.length > 0) {
+      setQuestions(extractedQuestions.map((q) => ({
+        type: q.type || "mcq",
+        prompt: q.prompt || "",
+        questionImageUrl: q.questionImageUrl || "",
+        choices: q.choices && q.choices.length >= 2 ? q.choices : ["", "", "", ""],
+        correctIndex: typeof q.correctIndex === "number" ? q.correctIndex : 0,
+        points: Number(q.points || 1),
+        modelAnswer: q.modelAnswer || "",
+        gradingRubric: q.gradingRubric || "",
+      })));
+      setActiveQuestionIndex(0);
+      setNotice(`🎉 تم بنجاح استخراج ${extractedQuestions.length} سؤال من الملف! راجع الأسئلة في القائمة بالأسفل، عدّل الاختيارات، وحدد الإجابة الصحيحة لكل سؤال قبل الحفظ.`);
+    }
+  }
 
   function addQuestion() {
     setQuestions((prev) => [...prev, emptyQuestion()]);
@@ -154,6 +175,9 @@ export default function AddQuizPage() {
             {error || notice}
           </div>
         )}
+
+        {/* AI Exam Doc Importer */}
+        <AiExamDocImporter onExtracted={handleQuestionsExtracted} />
 
         <form onSubmit={handleSubmit} className="grid gap-6 xl:grid-cols-[1fr_22rem]">
           <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">

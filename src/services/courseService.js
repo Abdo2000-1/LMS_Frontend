@@ -607,3 +607,21 @@ export async function deleteExam(examId) {
     throw new Error(extractErrorMessage(error));
   }
 }
+
+export async function parseExamDocument(file) {
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await apiClient.post("/api/exams/parse-document", formData, {
+      ...requestConfig,
+      headers: {
+        ...requestConfig.headers,
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+

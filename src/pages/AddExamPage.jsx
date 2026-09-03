@@ -18,6 +18,7 @@ import DashboardLayout from "../components/DashboardLayout.jsx";
 import { createExam, deleteExam, subscribeCourses, subscribeExams } from "../services/courseService.js";
 import { uploadImageToStorage } from "../services/storageService.js";
 import { useEffect } from "react";
+import AiExamDocImporter from "../components/AiExamDocImporter.jsx";
 
 const emptyQuestion = () => ({
   type: "mcq",
@@ -59,6 +60,26 @@ export default function AddExamPage() {
       unsubExams();
     };
   }, []);
+
+  function handleQuestionsExtracted({ title: extractedTitle, questions: extractedQuestions }) {
+    if (extractedTitle && !title.trim()) {
+      setTitle(extractedTitle);
+    }
+    if (extractedQuestions && extractedQuestions.length > 0) {
+      setQuestions(extractedQuestions.map((q) => ({
+        type: q.type || "mcq",
+        prompt: q.prompt || "",
+        questionImageUrl: q.questionImageUrl || "",
+        choices: q.choices && q.choices.length >= 2 ? q.choices : ["", "", "", ""],
+        correctIndex: typeof q.correctIndex === "number" ? q.correctIndex : 0,
+        points: Number(q.points || 1),
+        modelAnswer: q.modelAnswer || "",
+        gradingRubric: q.gradingRubric || "",
+      })));
+      setActiveQuestionIndex(0);
+      setNotice(`🎉 تم بنجاح استخراج ${extractedQuestions.length} سؤال من الملف! راجع الأسئلة في القائمة بالأسفل، عدّل الاختيارات، وحدد الإجابة الصحيحة لكل سؤال قبل الحفظ.`);
+    }
+  }
 
   function addQuestion() {
     setQuestions((prev) => [...prev, emptyQuestion()]);
@@ -220,6 +241,9 @@ export default function AddExamPage() {
             {error || notice}
           </div>
         )}
+
+        {/* AI Exam Doc Importer */}
+        <AiExamDocImporter onExtracted={handleQuestionsExtracted} />
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Exam Info Card */}
