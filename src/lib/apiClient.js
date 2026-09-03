@@ -15,7 +15,7 @@ export const apiClient = axios.create({
     "Content-Type": "application/json",
   },
   withCredentials: false,
-  timeout: 30000,
+  timeout: 300000,
 });
 
 let onSessionExpired = null;

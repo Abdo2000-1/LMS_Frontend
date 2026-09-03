@@ -1,31 +1,40 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, FileText, Upload, CheckCircle2, AlertCircle, Loader2, X, Check, Edit3 } from "lucide-react";
+import { Sparkles, FileText, Upload, CheckCircle2, AlertCircle, Loader2, X, Check, Edit3, Clock } from "lucide-react";
 import { parseExamDocument, parseExamText } from "../services/courseService.js";
 
 export default function AiExamDocImporter({ onExtracted }) {
   const [activeTab, setActiveTab] = useState("file"); // "file" | "paste"
-  
-  // File upload states
+
+  // File & text states
   const [selectedFile, setSelectedFile] = useState(null);
   const [pastedText, setPastedText] = useState("");
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  
-  // Progress states
+
+  // Progress & Timer states
   const [uploadPercent, setUploadPercent] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-  const [aiStage, setAiStage] = useState(""); // "uploading" | "reading" | "extracting" | "formatting" | "done"
+  const [aiStage, setAiStage] = useState("");
   const [aiPercent, setAiPercent] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const fileInputRef = useRef(null);
-  const aiProgressInterval = useRef(null);
+  const timerIntervalRef = useRef(null);
+  const progressIntervalRef = useRef(null);
 
   useEffect(() => {
     return () => {
-      if (aiProgressInterval.current) clearInterval(aiProgressInterval.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     };
   }, []);
+
+  function handleTabChange(tab) {
+    setActiveTab(tab);
+    setError("");
+    setSuccessMessage("");
+  }
 
   function handleFileChange(e) {
     const file = e.target.files?.[0];
@@ -50,41 +59,66 @@ export default function AiExamDocImporter({ onExtracted }) {
     setUploadPercent(0);
     setAiPercent(0);
     setAiStage("");
+    setElapsedSeconds(0);
   }
 
-  function startAiProgressSimulation() {
-    setAiPercent(10);
+  function startSmoothProgress() {
+    setElapsedSeconds(0);
+    setAiPercent(5);
     setAiStage("reading");
 
-    if (aiProgressInterval.current) clearInterval(aiProgressInterval.current);
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
 
-    aiProgressInterval.current = setInterval(() => {
+    // Live seconds ticker
+    timerIntervalRef.current = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+
+    // Realistic non-freezing smooth curve:
+    // 0-8s: 5% -> 30% (reading)
+    // 8-20s: 30% -> 60% (extracting)
+    // 20-40s: 60% -> 85% (formatting)
+    // 40s+: 85% -> 98% (steady smooth advance, never stuck)
+    progressIntervalRef.current = setInterval(() => {
       setAiPercent((prev) => {
-        if (prev < 35) {
+        if (prev < 30) {
           setAiStage("reading");
-          return prev + Math.floor(Math.random() * 8) + 4;
-        } else if (prev < 75) {
+          return prev + 3;
+        } else if (prev < 60) {
           setAiStage("extracting");
-          return prev + Math.floor(Math.random() * 6) + 3;
-        } else if (prev < 94) {
+          return prev + 2;
+        } else if (prev < 85) {
           setAiStage("formatting");
-          return prev + Math.floor(Math.random() * 4) + 1;
+          return prev + 1;
+        } else if (prev < 97) {
+          setAiStage("formatting");
+          return prev + 0.5;
         }
-        return 95;
+        return 98; // Keeps ticking smoothly at 98% until server finishes
       });
-    }, 800);
+    }, 1000);
+  }
+
+  function stopProgress() {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
   }
 
   async function handleStartExtraction() {
-    if (activeTab === "file" && !selectedFile) return;
+    if (activeTab === "file" && !selectedFile) {
+      setError("يرجى اختيار ملف الامتحان أولاً.");
+      return;
+    }
     if (activeTab === "paste" && !pastedText.trim()) {
-      setError("يرجى لصق نص الامتحان أولاً في المربع أدناه.");
+      setError("يرجى كتابة أو لصق نص الامتحان أولاً في المربع أدناه.");
       return;
     }
 
     setIsParsing(true);
     setError("");
     setSuccessMessage("");
+    setElapsedSeconds(0);
 
     try {
       let data = null;
@@ -92,22 +126,23 @@ export default function AiExamDocImporter({ onExtracted }) {
       if (activeTab === "paste") {
         setUploadPercent(100);
         setIsUploading(false);
-        startAiProgressSimulation();
+        startSmoothProgress();
         data = await parseExamText(pastedText.trim());
       } else {
         setIsUploading(true);
         setUploadPercent(0);
         setAiStage("uploading");
+
         data = await parseExamDocument(selectedFile, (percent) => {
           setUploadPercent(percent);
           if (percent >= 100) {
             setIsUploading(false);
-            startAiProgressSimulation();
+            startSmoothProgress();
           }
         });
       }
 
-      if (aiProgressInterval.current) clearInterval(aiProgressInterval.current);
+      stopProgress();
 
       if (!data || !data.questions || data.questions.length === 0) {
         throw new Error("لم يتم العثور على أي أسئلة صالحة داخل المستند. تأكد من وضوح الأسئلة والاختيارات.");
@@ -123,12 +158,21 @@ export default function AiExamDocImporter({ onExtracted }) {
           questions: data.questions,
         });
       }
+
+      // Scroll down gently to questions review section
+      setTimeout(() => {
+        const reviewEl = document.getElementById("exam-builder-questions-section") || document.querySelector("form");
+        if (reviewEl) {
+          reviewEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 300);
+
     } catch (err) {
-      if (aiProgressInterval.current) clearInterval(aiProgressInterval.current);
+      stopProgress();
       const isTimeout = /timeout/i.test(String(err.message || ""));
       setError(
         isTimeout
-          ? "استغرقت معالجة الملف وقتاً أطول من المتوقع نظراً لكبر حجم الملف أو ضغط السيرفر. ننصح بنسخ نص الامتحان ولصقه في تبويب 'لصق نص الامتحان' لسرعة فورية (خلال 5 ثوانٍ)."
+          ? "استغرقت العملية وقتاً أطول من المتوقع نظراً لضغط الاتصال. يرجى المحاولة مرة أخرى."
           : (err.message || "حدث خطأ أثناء استخراج الأسئلة بالذكاء الاصطناعي.")
       );
       setAiStage("");
@@ -139,16 +183,23 @@ export default function AiExamDocImporter({ onExtracted }) {
   }
 
   function handleRemoveFile() {
-    if (aiProgressInterval.current) clearInterval(aiProgressInterval.current);
+    stopProgress();
     setSelectedFile(null);
     setError("");
     setSuccessMessage("");
     setUploadPercent(0);
     setAiPercent(0);
     setAiStage("");
+    setElapsedSeconds(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  }
+
+  function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins < 10 ? "0" : ""}${mins}:${secs < 10 ? "0" : ""}${secs}`;
   }
 
   function getAiStageText() {
@@ -156,7 +207,7 @@ export default function AiExamDocImporter({ onExtracted }) {
       case "uploading":
         return `المرحلة 1: جارٍ رفع الملف إلى السيرفر... (${uploadPercent}%)`;
       case "reading":
-        return `المرحلة 2: تم الرفع بنجاح (100%). جارٍ قراءة مستند الامتحان بالذكاء الاصطناعي...`;
+        return `المرحلة 2: جارٍ قراءة وفحص محتوى الامتحان بالذكاء الاصطناعي...`;
       case "extracting":
         return `المرحلة 3: الـ AI يقوم الآن بتحليل وتقسيم الأسئلة والاختيارات والمعادلات...`;
       case "formatting":
@@ -164,14 +215,16 @@ export default function AiExamDocImporter({ onExtracted }) {
       case "done":
         return `اكتملت العملية بنجاح 100%!`;
       default:
-        return "";
+        return "جارٍ معالجة الامتحان...";
     }
   }
 
+  const currentPercent = Math.round(isUploading ? uploadPercent : aiPercent);
+
   return (
     <div className="rounded-3xl border-2 border-dashed border-cyan-300 dark:border-cyan-700/80 bg-gradient-to-br from-cyan-50/70 via-blue-50/50 to-indigo-50/60 dark:from-slate-900/90 dark:to-slate-800/80 p-5 sm:p-6 shadow-sm">
+      {/* Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        {/* Title & Description */}
         <div className="space-y-1.5 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <div className="p-2 rounded-xl bg-gradient-to-tr from-[#0077B6] to-[#00A8E8] text-white shadow-md shadow-cyan-500/20">
@@ -194,7 +247,8 @@ export default function AiExamDocImporter({ onExtracted }) {
       <div className="mt-4 flex items-center gap-2 border-b border-cyan-200/80 dark:border-slate-800 pb-3">
         <button
           type="button"
-          onClick={() => { setActiveTab("file"); setError(""); }}
+          onClick={() => handleTabChange("file")}
+          disabled={isParsing}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition ${
             activeTab === "file"
               ? "bg-[#0077B6] text-white shadow-sm"
@@ -207,7 +261,8 @@ export default function AiExamDocImporter({ onExtracted }) {
 
         <button
           type="button"
-          onClick={() => { setActiveTab("paste"); setError(""); }}
+          onClick={() => handleTabChange("paste")}
+          disabled={isParsing}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition ${
             activeTab === "paste"
               ? "bg-[#0077B6] text-white shadow-sm"
@@ -272,7 +327,7 @@ export default function AiExamDocImporter({ onExtracted }) {
               {isParsing ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  <span>جارٍ المعالجة ({isUploading ? `${uploadPercent}%` : `${aiPercent}%`})...</span>
+                  <span>جارٍ المعالجة ({currentPercent}%)...</span>
                 </>
               ) : (
                 <>
@@ -291,7 +346,10 @@ export default function AiExamDocImporter({ onExtracted }) {
           <textarea
             rows={6}
             value={pastedText}
-            onChange={(e) => setPastedText(e.target.value)}
+            onChange={(e) => {
+              setPastedText(e.target.value);
+              if (error) setError("");
+            }}
             disabled={isParsing}
             placeholder="الصق نص الامتحان هنا مباشرة (الأسئلة والاختيارات من وورد أو PDF أو ملف Markdown أو أي مصدر)..."
             className="w-full rounded-2xl border border-cyan-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 p-4 text-xs font-bold leading-relaxed text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20 transition"
@@ -306,7 +364,7 @@ export default function AiExamDocImporter({ onExtracted }) {
               {isParsing ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  <span>جارٍ تحليل النص وتقسيم الأسئلة ({aiPercent}%)...</span>
+                  <span>جارٍ تحليل النص وتقسيم الأسئلة ({currentPercent}%)...</span>
                 </>
               ) : (
                 <>
@@ -319,37 +377,45 @@ export default function AiExamDocImporter({ onExtracted }) {
         </div>
       )}
 
-      {/* --- DETAILED PROGRESS SECTION --- */}
+      {/* --- LIVE REAL-TIME PROGRESS & TIMER SECTION --- */}
       {isParsing && (
-        <div className="mt-4 p-4 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-cyan-200 dark:border-cyan-800 shadow-sm space-y-3">
+        <div className="mt-4 p-4 rounded-2xl bg-white/90 dark:bg-slate-800/90 border border-cyan-200 dark:border-cyan-800 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-100">
               <Loader2 size={15} className="animate-spin text-[#0077B6] dark:text-cyan-400 shrink-0" />
               <span>{getAiStageText()}</span>
             </div>
-            <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-950 text-[#0077B6] dark:text-cyan-300 font-mono">
-              {isUploading ? `${uploadPercent}%` : `${aiPercent}%`}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-[11px] font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-lg">
+                <Clock size={12} />
+                <span>{formatTime(elapsedSeconds)}</span>
+              </span>
+              <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-950 text-[#0077B6] dark:text-cyan-300 font-mono">
+                {currentPercent}%
+              </span>
+            </div>
           </div>
 
+          {/* Animated Gradient Bar */}
           <div className="w-full bg-slate-200 dark:bg-slate-700 h-3 rounded-full overflow-hidden p-0.5">
             <div
-              className="bg-gradient-to-r from-[#0077B6] via-cyan-400 to-[#00A8E8] h-full rounded-full transition-all duration-300 shadow-sm"
-              style={{ width: `${isUploading ? uploadPercent : aiPercent}%` }}
+              className="bg-gradient-to-r from-[#0077B6] via-cyan-400 to-[#00A8E8] h-full rounded-full transition-all duration-700 shadow-sm"
+              style={{ width: `${Math.max(5, currentPercent)}%` }}
             />
           </div>
 
+          {/* Progress Steps Indicators */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px] font-bold">
             <div className={`flex items-center gap-1.5 ${uploadPercent >= 100 ? "text-emerald-600 dark:text-emerald-400" : isUploading ? "text-[#0077B6] font-black" : "text-slate-400"}`}>
               {uploadPercent >= 100 ? <Check size={13} className="shrink-0" /> : <span className="w-2 h-2 rounded-full bg-current shrink-0" />}
               <span>1. رفع البيانات ({uploadPercent}%)</span>
             </div>
-            <div className={`flex items-center gap-1.5 ${aiPercent >= 35 ? "text-emerald-600 dark:text-emerald-400" : aiStage === "reading" ? "text-[#0077B6] font-black animate-pulse" : "text-slate-400"}`}>
-              {aiPercent >= 35 ? <Check size={13} className="shrink-0" /> : <span className="w-2 h-2 rounded-full bg-current shrink-0" />}
+            <div className={`flex items-center gap-1.5 ${aiPercent >= 30 ? "text-emerald-600 dark:text-emerald-400" : aiStage === "reading" ? "text-[#0077B6] font-black animate-pulse" : "text-slate-400"}`}>
+              {aiPercent >= 30 ? <Check size={13} className="shrink-0" /> : <span className="w-2 h-2 rounded-full bg-current shrink-0" />}
               <span>2. قراءة المستند</span>
             </div>
-            <div className={`flex items-center gap-1.5 ${aiPercent >= 70 ? "text-emerald-600 dark:text-emerald-400" : aiStage === "extracting" ? "text-[#0077B6] font-black animate-pulse" : "text-slate-400"}`}>
-              {aiPercent >= 70 ? <Check size={13} className="shrink-0" /> : <span className="w-2 h-2 rounded-full bg-current shrink-0" />}
+            <div className={`flex items-center gap-1.5 ${aiPercent >= 60 ? "text-emerald-600 dark:text-emerald-400" : aiStage === "extracting" ? "text-[#0077B6] font-black animate-pulse" : "text-slate-400"}`}>
+              {aiPercent >= 60 ? <Check size={13} className="shrink-0" /> : <span className="w-2 h-2 rounded-full bg-current shrink-0" />}
               <span>3. تقسيم الأسئلة</span>
             </div>
             <div className={`flex items-center gap-1.5 ${aiPercent >= 100 ? "text-emerald-600 dark:text-emerald-400" : aiStage === "formatting" ? "text-[#0077B6] font-black animate-pulse" : "text-slate-400"}`}>
