@@ -30,29 +30,54 @@ const SUB_MAP = { "0":"₀","1":"₁","2":"₂","3":"₃","4":"₄","5":"₅","6
 function formatChemText(raw) {
   if (!raw) return "";
   let text = raw;
-  // Replace \text{...}, \mathrm{...}, \mathbf{...}, \ce{...}
+
+  // 1. Remove LaTeX formatting
   text = text.replace(/\\(?:text|mathrm|mathbf|ce|mathit)\{([^}]*)\}/g, "$1");
-  // Replace subscript digits like _{12} or _2 with unicode subscripts
-  text = text.replace(/_\{(\d+)\}/g, (_, d) => d.split("").map(c => SUB_MAP[c] || c).join(""));
-  text = text.replace(/_(\d)/g, (_, d) => SUB_MAP[d] || d);
-  // Replace superscript charges like ^{+2} or ^{-}
+
+  // 2. Subscript digits with state: _{2(g)} -> ₂(g)
+  text = text.replace(/_\{([0-9]+)\s*(\([a-zA-Z]+\))\}/g, (_, d, st) => {
+    return d.split("").map(c => SUB_MAP[c] || c).join("") + st;
+  });
+
+  // 3. Subscript digits: _{12} or _{2} -> ₁₂
+  text = text.replace(/_\{([0-9]+)\}/g, (_, d) => {
+    return d.split("").map(c => SUB_MAP[c] || c).join("");
+  });
+
+  // 4. State of matter subscripts: _{(s)}, _{(g)}, _{(aq)}, _{(l)} -> (s), (g), (aq), (l)
+  text = text.replace(/_\{\s*\(?([a-zA-Z]+)\)?\s*\}/g, "($1)");
+
+  // 5. Single underscore: _2 -> ₂, _(s) -> (s)
+  text = text.replace(/_([0-9])/g, (_, d) => SUB_MAP[d] || d);
+  text = text.replace(/_(\([a-zA-Z]+\))/g, "$1");
+
+  // 6. Superscripts: ^{...}
   text = text.replace(/\^\{([^}]*)\}/g, "($1)");
   text = text.replace(/\^([0-9+-])/g, "($1)");
-  // Replace arrows
+
+  // 7. Reaction conditions in braces: {Δ} or {CaO / Δ} -> ──(Δ)──>
+  text = text.replace(/\{\s*Δ\s*\}/g, " ──(Δ)──> ");
+  text = text.replace(/\{\s*([^}]+)\s*\}/g, " ──($1)──> ");
+
+  // 8. Arrows
   text = text.replace(/\\rightarrow/g, "→")
              .replace(/\\longrightarrow/g, "──>")
              .replace(/\\leftrightarrow/g, "⇌")
              .replace(/\\rightleftharpoons/g, "⇌")
              .replace(/\\to/g, "→")
              .replace(/-->/g, "──>")
-             .replace(/->/g, "→")
-             .replace(/\\times/g, "×")
-             .replace(/\\Delta/g, "Δ");
-  // Remove $$ and $
+             .replace(/->/g, "→");
+
+  // Avoid duplicate arrows
+  text = text.replace(/──>\s*→/g, "──>");
+  text = text.replace(/→\s*──>/g, "──>");
+  text = text.replace(/──>\s*──>/g, "──>");
+
+  // 9. Dollar signs and backslashes
   text = text.replace(/\$\$/g, "").replace(/\$/g, "");
-  // Clean dangling backslashes
   text = text.replace(/\\[a-zA-Z]+/g, "");
-  return text;
+
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function ChemMessageContent({ content, isUser }) {
