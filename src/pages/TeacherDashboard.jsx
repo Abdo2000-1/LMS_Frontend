@@ -475,6 +475,22 @@ export default function TeacherDashboard() {
     window.open(url, "_blank");
   }
 
+  function openWhatsAppStudent(studentPhone, studentName, studentId) {
+    if (!studentPhone || studentPhone === "غير مسجل") {
+      alert("رقم الطالب غير متوفر.");
+      return;
+    }
+    let cleanPhone = String(studentPhone).replace(/\D/g, "");
+    if (cleanPhone.startsWith("0")) {
+      cleanPhone = "20" + cleanPhone.slice(1);
+    } else if (!cleanPhone.startsWith("20") && cleanPhone.length === 10) {
+      cleanPhone = "20" + cleanPhone;
+    }
+    const message = `أهلاً بك يا ${studentName || "بطل"}، معاك تيم متابعة دكتور مينا موريد (منصة الكيمياء). نتمنى لك التوفيق دائماً!`;
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank");
+  }
+
   function exportStudentsToExcel() {
     const realStudents = (students || []).filter(s => !isCodeStudent(s));
     if (realStudents.length === 0) {
@@ -871,7 +887,19 @@ export default function TeacherDashboard() {
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 font-bold">
-                            <span>الطالب: {s.phone}</span>
+                            {s.phone ? (
+                              <button
+                                type="button"
+                                onClick={() => openWhatsAppStudent(s.phone, s.name, s.studentId)}
+                                className="text-cyan-700 hover:text-cyan-900 hover:underline flex items-center gap-1 font-extrabold"
+                                title="مراسلة الطالب على واتساب فوراً"
+                              >
+                                <MessageCircle size={13} className="text-emerald-500" />
+                                الطالب: {s.phone}
+                              </button>
+                            ) : (
+                              <span>الطالب: غير مسجل</span>
+                            )}
                             {s.parentPhone && s.parentPhone !== "غير مسجل" && (
                               <button
                                 type="button"
@@ -1015,7 +1043,19 @@ export default function TeacherDashboard() {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold">موبايل الطالب والولي</span>
-                    <p className="text-xs font-bold text-slate-800 mt-1">الطالب: {selectedStudentDetail.phone}</p>
+                    {selectedStudentDetail.phone ? (
+                      <button
+                        type="button"
+                        onClick={() => openWhatsAppStudent(selectedStudentDetail.phone, selectedStudentDetail.name, selectedStudentDetail.studentId)}
+                        title="مراسلة الطالب على واتساب فوراً"
+                        className="inline-flex items-center gap-1.5 text-xs font-black text-cyan-700 hover:text-cyan-800 hover:underline mt-1 bg-cyan-50 px-2 py-0.5 rounded-lg border border-cyan-200 transition"
+                      >
+                        <MessageCircle size={13} className="text-emerald-500 shrink-0" />
+                        الطالب: {selectedStudentDetail.phone} (واتساب)
+                      </button>
+                    ) : (
+                      <p className="text-xs font-bold text-slate-800 mt-1">الطالب: غير مسجل</p>
+                    )}
                     {selectedStudentDetail.parentPhone && selectedStudentDetail.parentPhone !== "غير مسجل" ? (
                       <button
                         type="button"
