@@ -302,15 +302,15 @@ export default function Login() {
                       onChange={handleChange}
                       placeholder="01XXXXXXXXX"
                       aria-invalid={Boolean(errors.phone)}
-                      className={`w-full rounded-xl border bg-white/60 dark:bg-slate-800/60 pr-11 pl-4 py-3 text-sm outline-none transition-all duration-200 focus:ring-2 backdrop-blur-sm ${
+                      className={`w-full rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold pr-11 pl-4 py-3 text-sm outline-none transition-all duration-200 focus:ring-2 ${
                         errors.phone
                           ? "border-red-400 focus:ring-red-300"
-                          : "border-slate-200 dark:border-slate-700 focus:ring-chem-light/40 focus:border-chem-light"
+                          : "border-slate-300 dark:border-slate-700 focus:ring-chem-light/40 focus:border-chem-light"
                       }`}
                     />
                   </div>
                   {errors.phone && (
-                    <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{errors.phone}</p>
+                    <p className="mt-1.5 text-xs text-red-600 dark:text-red-400 font-bold">{errors.phone}</p>
                   )}
                 </div>
 
@@ -332,10 +332,10 @@ export default function Login() {
                       onChange={handleChange}
                       placeholder="••••••••"
                       aria-invalid={Boolean(errors.password)}
-                      className={`w-full rounded-xl border bg-white/60 dark:bg-slate-800/60 pr-11 pl-11 py-3 text-sm outline-none transition-all duration-200 focus:ring-2 backdrop-blur-sm ${
+                      className={`w-full rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold pr-11 pl-11 py-3 text-sm outline-none transition-all duration-200 focus:ring-2 ${
                         errors.password
                           ? "border-red-400 focus:ring-red-300"
-                          : "border-slate-200 dark:border-slate-700 focus:ring-chem-light/40 focus:border-chem-light"
+                          : "border-slate-300 dark:border-slate-700 focus:ring-chem-light/40 focus:border-chem-light"
                       }`}
                     />
                     <button

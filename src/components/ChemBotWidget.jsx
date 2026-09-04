@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageCircle,
@@ -175,6 +176,13 @@ function ChemMessageContent({ content, isUser }) {
 
 export default function ChemBotWidget({ courseId = null }) {
   const { user } = useAuth();
+  const location = useLocation();
+  const isExamRoute = location.pathname.startsWith("/exam");
+
+  if (isExamRoute) {
+    return null;
+  }
+
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
     {

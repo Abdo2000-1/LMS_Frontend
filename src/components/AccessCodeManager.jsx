@@ -20,6 +20,8 @@ import {
   revokeAllAccessCodes,
 } from "../services/accessCodeService.js";
 import { buildCourseContent } from "../services/courseService.js";
+import cardLectureImg from "../../images/card_lecture.png";
+import cardCourseImg from "../../images/card_course.png";
 
 export default function AccessCodeManager({ courses = [] }) {
   const [selectedCourseId, setSelectedCourseId] = useState(courses[0]?.id || "");
@@ -32,6 +34,7 @@ export default function AccessCodeManager({ courses = [] }) {
   const [message, setMessage] = useState({ type: "", text: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printFilter, setPrintFilter] = useState("Unused");
   const [copiedCode, setCopiedCode] = useState("");
 
   const activeCourse = useMemo(
@@ -484,65 +487,171 @@ export default function AccessCodeManager({ courses = [] }) {
 
       {/* Print Preview Modal */}
       {isPrintModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-4xl w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto text-right">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
-              <h3 className="text-xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Printer size={20} className="text-[#0077B6]" /> معاينة كروت الشحن للطباعة
-              </h3>
-              <div className="flex items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <style>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+              #printable-cards-area, #printable-cards-area * {
+                visibility: visible !important;
+              }
+              #printable-cards-area {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 10mm !important;
+                background: white !important;
+              }
+              @page {
+                size: A4 portrait;
+                margin: 8mm;
+              }
+              * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+              }
+              .print-card-item {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+                margin-bottom: 14px !important;
+              }
+            }
+          `}</style>
+
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-5xl w-full p-5 sm:p-8 space-y-5 max-h-[92vh] overflow-y-auto text-right border border-slate-200 dark:border-slate-800 shadow-2xl">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Printer size={22} className="text-[#0077B6]" />
+                  <span>معاينة وطباعة كروت الأكواد الرسمية</span>
+                </h3>
+                <p className="text-xs text-slate-400 font-bold mt-0.5">
+                  تطبع الأكواد مباشرة على الكروت بالصورة الرسمية الملونة داخل الخانة البيضاء
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="bg-[#0077B6] hover:bg-[#005f93] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all"
+                  className="flex-1 sm:flex-none bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white px-5 py-2.5 rounded-xl text-xs font-black shadow-md shadow-cyan-900/20 hover:opacity-95 transition flex items-center justify-center gap-2"
                 >
-                  طباعة الآن
+                  <Printer size={16} />
+                  <span>طباعة بالألوان الآن</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsPrintModalOpen(false)}
-                  className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-xl text-xs font-bold"
+                  className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-200 transition"
                 >
                   إغلاق
                 </button>
               </div>
             </div>
 
-            {/* Printable Area Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:grid-cols-2 print:gap-4 print:p-0">
+            {/* Filter Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 text-xs font-bold">
+              <span className="text-slate-500 dark:text-slate-400 ml-2">تصفية الطباعة:</span>
+              <button
+                type="button"
+                onClick={() => setPrintFilter("Unused")}
+                className={`px-3 py-1.5 rounded-xl transition ${
+                  printFilter === "Unused"
+                    ? "bg-[#0077B6] text-white font-black shadow-sm"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                المتاحة فقط (غير مستخدمة)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintFilter("FullCourse")}
+                className={`px-3 py-1.5 rounded-xl transition ${
+                  printFilter === "FullCourse"
+                    ? "bg-[#0077B6] text-white font-black shadow-sm"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                كروت الكورس الكامل فقط
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintFilter("SelectedLectures")}
+                className={`px-3 py-1.5 rounded-xl transition ${
+                  printFilter === "SelectedLectures"
+                    ? "bg-[#0077B6] text-white font-black shadow-sm"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                كروت المحاضرات فقط
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintFilter("All")}
+                className={`px-3 py-1.5 rounded-xl transition ${
+                  printFilter === "All"
+                    ? "bg-[#0077B6] text-white font-black shadow-sm"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                جميع الأكواد
+              </button>
+            </div>
+
+            {/* Printable Cards Grid */}
+            <div
+              id="printable-cards-area"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:grid-cols-2 print:gap-4 print:p-0"
+            >
               {filteredCodes
-                .filter((c) => c.status === "Unused")
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-5 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex flex-col justify-between gap-3 text-center print:border-black print:bg-white print:text-black"
-                  >
-                    <div>
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest print:text-black">
-                        LMS EDUCATIONAL CENTER
-                      </p>
-                      <h4 className="text-base font-black text-[#0077B6] print:text-black mt-1">
-                        {item.courseTitle}
-                      </h4>
-                      <p className="text-xs font-bold text-amber-600 print:text-black mt-0.5">
-                        {item.accessType === "FullCourse"
-                          ? "كورس كامل"
-                          : `محاضرات محددة (${item.allowedLectureIds?.length || 0})`}
-                      </p>
-                    </div>
+                .filter((c) => {
+                  if (printFilter === "Unused") return c.status === "Unused";
+                  if (printFilter === "FullCourse") return c.accessType === "FullCourse";
+                  if (printFilter === "SelectedLectures") return c.accessType !== "FullCourse";
+                  return true;
+                })
+                .map((item) => {
+                  const isFullCourse = item.accessType === "FullCourse";
+                  const cardBg = isFullCourse ? cardCourseImg : cardLectureImg;
 
-                    <div className="py-3 px-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl print:border-black print:bg-white">
-                      <span className="text-xs font-bold text-slate-400 block mb-1">كود التفعيل (12 رقم)</span>
-                      <span className="font-mono text-xl font-black text-slate-900 dark:text-slate-100 tracking-widest print:text-black">
-                        {item.code.replace(/(\d{4})(\d{4})(\d{4})/, "$1 - $2 - $3")}
-                      </span>
-                    </div>
+                  return (
+                    <div
+                      key={item.id}
+                      className="print-card-item relative rounded-2xl overflow-hidden shadow-md border border-slate-200 dark:border-slate-800 bg-slate-950 select-none print:shadow-none print:border-none"
+                    >
+                      {/* Card Template Image */}
+                      <img
+                        src={cardBg}
+                        alt={isFullCourse ? "كارت كورس كامل" : "كارت محاضرة واحدة"}
+                        className="w-full h-auto block"
+                        loading="eager"
+                      />
 
-                    <p className="text-[10px] text-slate-400 print:text-black">
-                      ادخل الكود في المنصة لشحن الرصيد والوصول للمحتوى
-                    </p>
-                  </div>
-                ))}
+                      {/* 12-Digit Code Overlay directly inside the central white box without separators */}
+                      <div
+                        className="absolute flex items-center justify-center pointer-events-none"
+                        style={{
+                          top: "21.6%",
+                          bottom: "57.4%",
+                          left: "8.5%",
+                          right: "8.5%",
+                        }}
+                      >
+                        <span
+                          dir="ltr"
+                          className="font-mono font-black text-slate-950 text-xl sm:text-2xl lg:text-3xl tracking-[0.14em] drop-shadow-sm select-all"
+                        >
+                          {item.code}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </div>
         </div>

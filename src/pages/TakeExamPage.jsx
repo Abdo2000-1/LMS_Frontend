@@ -78,7 +78,7 @@ export default function TakeExamPage() {
     };
   }, [examId]);
 
-  const questions = useMemo(() => {
+  const rawQuestions = useMemo(() => {
     if (!exam || !Array.isArray(exam.questions)) return [];
     return exam.questions.map((q, idx) => ({
       ...q,
@@ -89,9 +89,55 @@ export default function TakeExamPage() {
     }));
   }, [exam]);
 
+  const [shuffledQuestions, setShuffledQuestions] = useState([]);
+
+  function shuffle(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  // Shuffle questions randomly whenever exam data is loaded or restarted
+  useEffect(() => {
+    if (rawQuestions.length > 0 && shuffledQuestions.length === 0) {
+      setShuffledQuestions(shuffle(rawQuestions));
+    }
+  }, [rawQuestions, shuffledQuestions.length]);
+
+  const questions = shuffledQuestions.length > 0 ? shuffledQuestions : rawQuestions;
+
   const totalPoints = useMemo(() => {
     return questions.reduce((sum, q) => sum + (q.points || 1), 0);
   }, [questions]);
+
+  // Prevent student from leaving or closing window during running exam
+  useEffect(() => {
+    if (examState !== "running") return;
+
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "⚠️ الامتحان جارٍ الآن! إذا خرجت فلن يتم احتساب إجاباتك غير المسلمة.";
+      return e.returnValue;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Trap browser back button
+    window.history.pushState(null, "", window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, "", window.location.href);
+      alert("⚠️ غير مسموح بالخروج أو الرجوع أثناء أداء الامتحان! يجب الضغط على 'تسليم الامتحان' لإنهاء جلستك وحفظ نتيجتك.");
+    };
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [examState]);
 
   // Timer runner
   useEffect(() => {
@@ -122,6 +168,7 @@ export default function TakeExamPage() {
   const timeSpentSeconds = (exam?.minutes || 30) * 60 - timeLeft;
 
   function handleStartExam() {
+    setShuffledQuestions(shuffle(rawQuestions));
     setAnswers({});
     setFlagged(new Set());
     setCurrentIndex(0);
@@ -223,19 +270,21 @@ export default function TakeExamPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           {/* Right: Exit button & Exam title */}
           <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => {
-                if (examState === "running" && !window.confirm("هل أنت متأكد من الخروج؟ سيتم فقدان تقدمك في هذا الامتحان إذا لم تسلمه.")) {
-                  return;
-                }
-                navigate(-1);
-              }}
-              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition shrink-0"
-              title="الرجوع"
-            >
-              <ArrowRight size={18} />
-            </button>
+            {examState !== "running" ? (
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition shrink-0"
+                title="الرجوع"
+              >
+                <ArrowRight size={18} />
+              </button>
+            ) : (
+              <div className="px-3 py-1.5 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 text-xs font-black flex items-center gap-1.5 shrink-0 select-none border border-red-200 dark:border-red-900/50">
+                <Lock size={14} />
+                <span className="hidden sm:inline">ممنوع الخروج أثناء الامتحان</span>
+              </div>
+            )}
             <div className="min-w-0">
               <h1 className="text-sm sm:text-base font-black text-slate-900 dark:text-white truncate">
                 {exam.title}
@@ -673,14 +722,21 @@ export default function TakeExamPage() {
                 <span>{reviewMode ? "إخفاء نموذج الإجابة" : "عرض ومراجعة الإجابات النموذجية"}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleStartExam}
-                className="px-6 py-3 rounded-2xl bg-[#0077B6] hover:bg-[#00A8E8] text-white text-xs font-black transition flex items-center gap-2 shadow-sm"
-              >
-                <RotateCcw size={16} />
-                <span>إعادة المحاولة</span>
-              </button>
+              {exam?.allowRetake !== false ? (
+                <button
+                  type="button"
+                  onClick={handleStartExam}
+                  className="px-6 py-3 rounded-2xl bg-[#0077B6] hover:bg-[#00A8E8] text-white text-xs font-black transition flex items-center gap-2 shadow-sm"
+                >
+                  <RotateCcw size={16} />
+                  <span>إعادة المحاولة</span>
+                </button>
+              ) : (
+                <div className="px-5 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs font-black flex items-center gap-2">
+                  <Lock size={15} />
+                  <span>هذا الامتحان غير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم</span>
+                </div>
+              )}
 
               <Link
                 to="/"

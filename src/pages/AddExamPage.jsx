@@ -44,6 +44,7 @@ export default function AddExamPage() {
   const [minutes, setMinutes] = useState("30");
   const [isPublished, setIsPublished] = useState(true);
   const [isFree, setIsFree] = useState(false);
+  const [allowRetake, setAllowRetake] = useState(true);
   const [price, setPrice] = useState("0");
   const [questions, setQuestions] = useState([emptyQuestion()]);
   const [isBusy, setIsBusy] = useState(false);
@@ -160,6 +161,7 @@ export default function AddExamPage() {
         price: isFree ? 0 : Number(price || 0),
         isFree,
         isPublished,
+        allowRetake,
         questions: questions.map((q, idx) => ({
           questionId: `q${Date.now()}_${idx}`,
           type: q.type || "mcq",
@@ -366,6 +368,17 @@ export default function AddExamPage() {
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-300 ${isFree ? "left-7" : "left-1"}`} />
                 </div>
                 <span className="text-sm font-bold text-slate-700 dark:text-slate-300">مجاني للجميع</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <div
+                  onClick={() => setAllowRetake(!allowRetake)}
+                  className={`w-12 h-6 rounded-full transition-colors duration-300 relative cursor-pointer ${allowRetake ? "bg-[#0077B6]" : "bg-slate-300 dark:bg-slate-600"}`}
+                >
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-300 ${allowRetake ? "left-7" : "left-1"}`} />
+                </div>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                  {allowRetake ? "قابل لإعادة الامتحان (محاولات متعددة)" : "غير قابل للإعادة (محاولة واحدة فقط)"}
+                </span>
               </label>
             </div>
           </div>
