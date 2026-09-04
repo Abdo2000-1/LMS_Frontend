@@ -78,7 +78,16 @@ export default function TakeExamPage() {
     };
   }, [examId]);
 
-  const rawQuestions = useMemo(() => {
+  function shuffleArray(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  const baseQuestions = useMemo(() => {
     if (!exam || !Array.isArray(exam.questions)) return [];
     return exam.questions.map((q, idx) => ({
       ...q,
@@ -89,55 +98,40 @@ export default function TakeExamPage() {
     }));
   }, [exam]);
 
-  const [shuffledQuestions, setShuffledQuestions] = useState([]);
-
-  function shuffle(array) {
-    const arr = [...array];
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
-
-  // Shuffle questions randomly whenever exam data is loaded or restarted
-  useEffect(() => {
-    if (rawQuestions.length > 0 && shuffledQuestions.length === 0) {
-      setShuffledQuestions(shuffle(rawQuestions));
-    }
-  }, [rawQuestions, shuffledQuestions.length]);
-
-  const questions = shuffledQuestions.length > 0 ? shuffledQuestions : rawQuestions;
+  const [shuffledList, setShuffledList] = useState([]);
+  const questions = shuffledList.length > 0 ? shuffledList : baseQuestions;
 
   const totalPoints = useMemo(() => {
     return questions.reduce((sum, q) => sum + (q.points || 1), 0);
   }, [questions]);
 
-  // Prevent student from leaving or closing window during running exam
+  // Prevent accidental close or reload during running exam
   useEffect(() => {
     if (examState !== "running") return;
 
     const handleBeforeUnload = (e) => {
       e.preventDefault();
-      e.returnValue = "⚠️ الامتحان جارٍ الآن! إذا خرجت فلن يتم احتساب إجاباتك غير المسلمة.";
+      e.returnValue = "⚠️ الامتحان جارٍ الآن! هل أنت متأكد من المغادرة؟ لن يتم حفظ إجاباتك غير المسلمة.";
       return e.returnValue;
     };
 
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    // Trap browser back button
-    window.history.pushState(null, "", window.location.href);
-    const handlePopState = () => {
-      window.history.pushState(null, "", window.location.href);
-      alert("⚠️ غير مسموح بالخروج أو الرجوع أثناء أداء الامتحان! يجب الضغط على 'تسليم الامتحان' لإنهاء جلستك وحفظ نتيجتك.");
+    const handleHashChange = () => {
+      if (window.location.hash !== `#/exam/${examId}`) {
+        const confirmExit = window.confirm("⚠️ الامتحان جارٍ الآن! هل أنت متأكد من الخروج قبل تسليم إجاباتك؟");
+        if (!confirmExit) {
+          window.location.hash = `#/exam/${examId}`;
+        }
+      }
     };
-    window.addEventListener("popstate", handlePopState);
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("hashchange", handleHashChange);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("hashchange", handleHashChange);
     };
-  }, [examState]);
+  }, [examState, examId]);
 
   // Timer runner
   useEffect(() => {
@@ -162,13 +156,15 @@ export default function TakeExamPage() {
     };
   }, [examState]);
 
-  const currentQuestion = questions[currentIndex] || null;
+  const currentQuestion = questions[currentIndex] || questions[0] || null;
   const answeredCount = Object.keys(answers).filter((k) => answers[k] !== undefined && answers[k] !== "").length;
   const unansweredCount = questions.length - answeredCount;
   const timeSpentSeconds = (exam?.minutes || 30) * 60 - timeLeft;
 
   function handleStartExam() {
-    setShuffledQuestions(shuffle(rawQuestions));
+    const listToShuffle = baseQuestions.length > 0 ? baseQuestions : questions;
+    const shuffled = shuffleArray(listToShuffle);
+    setShuffledList(shuffled);
     setAnswers({});
     setFlagged(new Set());
     setCurrentIndex(0);
