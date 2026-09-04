@@ -50,10 +50,13 @@ export default function TakeExamPage() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
+  const [exitWarningModalOpen, setExitWarningModalOpen] = useState(false);
+  const [tabWarningModalOpen, setTabWarningModalOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [reviewMode, setReviewMode] = useState(false);
 
   const timerRef = useRef(null);
+  const leaveCountRef = useRef(0);
 
   // Load exam on mount
   useEffect(() => {
@@ -106,33 +109,123 @@ export default function TakeExamPage() {
     return questions.reduce((sum, q) => sum + (q.points || 1), 0);
   }, [questions]);
 
-  // Prevent accidental close or reload during running exam
+  // Retake policy and prior attempt determination
+  const isRetakeForbidden = useMemo(() => {
+    if (!exam) return false;
+    return exam.allowRetake === false || exam.id === "13629ef7-7c19-4c55-bb34-52a759780c66";
+  }, [exam]);
+
+  const priorAttempt = useMemo(() => {
+    if (!exam) return null;
+    if (exam.lastAttempt) return exam.lastAttempt;
+    const fromUser = user?.quizResults?.[exam.courseId]?.[exam.id] || user?.quizResults?.[exam.id];
+    if (fromUser) return fromUser;
+    try {
+      const saved = localStorage.getItem(`lms_exam_attempted_${exam.id}`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  }, [exam, user]);
+
+  const hasCompletedAttempt = Boolean(priorAttempt || (isRetakeForbidden && exam?.hasAttempted));
+
+  // Refs for access inside native event handlers
+  const answersRef = useRef(answers);
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+
+  const timeLeftRef = useRef(timeLeft);
+  useEffect(() => { timeLeftRef.current = timeLeft; }, [timeLeft]);
+
+  const currentQuestion = questions[currentIndex] || questions[0] || null;
+  const answeredCount = Object.keys(answers).filter((k) => answers[k] !== undefined && answers[k] !== "").length;
+  const unansweredCount = questions.length - answeredCount;
+  const timeSpentSeconds = (exam?.minutes || 30) * 60 - timeLeft;
+
+  // Auto-submit routine triggered on leaving or confirmation
+  async function performSubmission(customAnswers, customTimeLeft) {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmitModalOpen(false);
+    setExitWarningModalOpen(false);
+    setTabWarningModalOpen(false);
+
+    try {
+      const answersToSend = customAnswers || answersRef.current || answers;
+      const tLeft = customTimeLeft !== undefined ? customTimeLeft : (timeLeftRef.current !== undefined ? timeLeftRef.current : timeLeft);
+      const spent = Math.max(1, (exam?.minutes || 30) * 60 - tLeft);
+
+      const res = await submitExamAttempt({
+        examId: exam.id,
+        answers: answersToSend,
+        timeSpentSeconds: spent,
+      });
+
+      try {
+        localStorage.setItem(`lms_exam_attempted_${exam.id}`, JSON.stringify(res));
+      } catch {}
+
+      setResult({
+        ...res,
+        answers: answersToSend,
+        timeSpentSeconds: spent,
+      });
+
+      setExamState("result");
+      await refreshProfile?.();
+    } catch (err) {
+      alert(err.message || "حدث خطأ أثناء تسليم الامتحان.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleFinalSubmit() {
+    await performSubmission();
+  }
+
+  // Anti-Cheat & Exit Guard during running exam
   useEffect(() => {
     if (examState !== "running") return;
 
+    // Push state so back button is trapped
+    window.history.pushState(null, "", window.location.href);
+
     const handleBeforeUnload = (e) => {
       e.preventDefault();
-      e.returnValue = "⚠️ الامتحان جارٍ الآن! هل أنت متأكد من المغادرة؟ لن يتم حفظ إجاباتك غير المسلمة.";
+      e.returnValue = "⚠️ الامتحان جارٍ الآن! مغادرة الصفحة ستؤدي إلى تسليم الامتحان بالدرجة الحالية فوراً.";
       return e.returnValue;
     };
 
-    const handleHashChange = () => {
-      if (window.location.hash !== `#/exam/${examId}`) {
-        const confirmExit = window.confirm("⚠️ الامتحان جارٍ الآن! هل أنت متأكد من الخروج قبل تسليم إجاباتك؟");
-        if (!confirmExit) {
-          window.location.hash = `#/exam/${examId}`;
+    const handlePopState = () => {
+      // Trap back navigation and open exit confirmation modal
+      window.history.pushState(null, "", window.location.href);
+      setExitWarningModalOpen(true);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        leaveCountRef.current += 1;
+        if (leaveCountRef.current >= 2) {
+          // Auto submit immediately on repeated tab departure
+          performSubmission();
+        }
+      } else if (document.visibilityState === "visible") {
+        if (leaveCountRef.current === 1) {
+          setTabWarningModalOpen(true);
         }
       }
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
-    window.addEventListener("hashchange", handleHashChange);
+    window.addEventListener("popstate", handlePopState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      window.removeEventListener("hashchange", handleHashChange);
+      window.removeEventListener("popstate", handlePopState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [examState, examId]);
+  }, [examState]);
 
   // Timer runner
   useEffect(() => {
@@ -157,12 +250,12 @@ export default function TakeExamPage() {
     };
   }, [examState]);
 
-  const currentQuestion = questions[currentIndex] || questions[0] || null;
-  const answeredCount = Object.keys(answers).filter((k) => answers[k] !== undefined && answers[k] !== "").length;
-  const unansweredCount = questions.length - answeredCount;
-  const timeSpentSeconds = (exam?.minutes || 30) * 60 - timeLeft;
-
   function handleStartExam() {
+    if (isRetakeForbidden && hasCompletedAttempt) {
+      alert("هذا الامتحان غير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم.");
+      return;
+    }
+    leaveCountRef.current = 0;
     const listToShuffle = baseQuestions.length > 0 ? baseQuestions : questions;
     const shuffled = shuffleArray(listToShuffle);
     setShuffledList(shuffled);
@@ -195,33 +288,6 @@ export default function TakeExamPage() {
       else next.add(questionId);
       return next;
     });
-  }
-
-  async function handleFinalSubmit() {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    setSubmitModalOpen(false);
-
-    try {
-      const res = await submitExamAttempt({
-        examId: exam.id,
-        answers,
-        timeSpentSeconds,
-      });
-
-      setResult({
-        ...res,
-        answers,
-        timeSpentSeconds,
-      });
-
-      setExamState("result");
-      await refreshProfile?.();
-    } catch (err) {
-      alert(err.message || "حدث خطأ أثناء تسليم الامتحان.");
-    } finally {
-      setIsSubmitting(false);
-    }
   }
 
   // Timer styling
@@ -277,10 +343,16 @@ export default function TakeExamPage() {
                 <ArrowRight size={18} />
               </button>
             ) : (
-              <div className="px-3 py-1.5 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 text-xs font-black flex items-center gap-1.5 shrink-0 select-none border border-red-200 dark:border-red-900/50">
+              <button
+                type="button"
+                onClick={() => setExitWarningModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:hover:bg-red-900/80 text-red-600 dark:text-red-400 text-xs font-black flex items-center gap-1.5 shrink-0 select-none border border-red-200 dark:border-red-900/50 transition cursor-pointer"
+                title="مغادرة وتسليم الامتحان"
+              >
                 <Lock size={14} />
-                <span className="hidden sm:inline">ممنوع الخروج أثناء الامتحان</span>
-              </div>
+                <span className="hidden sm:inline">ممنوع الخروج (تسليم ومغادرة)</span>
+                <span className="sm:hidden">تسليم ومغادرة</span>
+              </button>
             )}
             <div className="min-w-0">
               <h1 className="text-sm sm:text-base font-black text-slate-900 dark:text-white truncate">
@@ -389,28 +461,64 @@ export default function TakeExamPage() {
                 <li>يمكنك التنقل بين الأسئلة بحرية وتمييز أي سؤال بعلامة 🚩 لمراجعته قبل التسليم.</li>
                 <li>يتم حفظ إجاباتك تلقائياً كل ثانية ولن تضيع في حال انقطاع الاتصال المؤقت.</li>
                 <li>عند انتهاء الوقت سيتم تسليم إجاباتك تلقائياً واحتساب النتيجة.</li>
+                <li className="text-red-600 dark:text-red-400 font-black">
+                  ⚠️ تنبيه مشدد: مغادرة شاشة الامتحان أو التبديل بين النوافذ والتطبيقات أثناء الامتحان تؤدي لإنذار فوري وتكرارها يسلّم الامتحان تلقائياً بالدرجة الحالية!
+                </li>
               </ul>
             </div>
 
-            {/* Start CTA */}
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <button
-                type="button"
-                onClick={() => navigate(-1)}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              >
-                الرجوع لاحقاً
-              </button>
+            {/* Start CTA or Blocked Card */}
+            {isRetakeForbidden && hasCompletedAttempt ? (
+              <div className="p-6 rounded-3xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-center space-y-4">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700">
+                  <Lock size={28} />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                    لقد قمت بأداء هذا الامتحان مسبقاً
+                  </h3>
+                  <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                    هذا الامتحان محدد بمحاولة واحدة فقط وغير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم.
+                  </p>
+                </div>
 
-              <button
-                type="button"
-                onClick={handleStartExam}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] hover:opacity-95 text-white font-black text-sm transition shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2"
-              >
-                <span>بدء الامتحان الآن</span>
-                <ArrowLeft size={17} />
-              </button>
-            </div>
+                {priorAttempt && (
+                  <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-xs font-black shadow-sm">
+                    <Award size={16} className="text-emerald-500" />
+                    <span>درجتك المسجلة: {priorAttempt.earnedPoints ?? 0} من {priorAttempt.totalPoints ?? totalPoints} ({priorAttempt.percentage ?? 0}%)</span>
+                  </div>
+                )}
+
+                <div className="pt-2 flex items-center justify-center gap-3">
+                  <Link
+                    to="/"
+                    className="px-6 py-3 rounded-2xl bg-[#0077B6] hover:bg-[#00A8E8] text-white text-xs font-black transition flex items-center gap-2 shadow-md shadow-cyan-600/20"
+                  >
+                    <Home size={15} />
+                    <span>العودة للرئيسية</span>
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => navigate(-1)}
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                >
+                  الرجوع لاحقاً
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleStartExam}
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] hover:opacity-95 text-white font-black text-sm transition shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2"
+                >
+                  <span>بدء الامتحان الآن</span>
+                  <ArrowLeft size={17} />
+                </button>
+              </div>
+            )}
           </motion.div>
         </main>
       )}
@@ -719,7 +827,7 @@ export default function TakeExamPage() {
                 <span>{reviewMode ? "إخفاء نموذج الإجابة" : "عرض ومراجعة الإجابات النموذجية"}</span>
               </button>
 
-              {exam?.allowRetake !== false ? (
+              {!isRetakeForbidden ? (
                 <button
                   type="button"
                   onClick={handleStartExam}
@@ -731,7 +839,7 @@ export default function TakeExamPage() {
               ) : (
                 <div className="px-5 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs font-black flex items-center gap-2">
                   <Lock size={15} />
-                  <span>هذا الامتحان غير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم</span>
+                  <span>هذا الامتحان غير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم (محاولة واحدة فقط)</span>
                 </div>
               )}
 
@@ -760,72 +868,57 @@ export default function TakeExamPage() {
                 return (
                   <div
                     key={q.questionId}
-                    className={`bg-white dark:bg-slate-900 p-6 rounded-3xl border shadow-sm space-y-4 ${
-                      isCorrect
-                        ? "border-emerald-200 dark:border-emerald-800/80"
-                        : q.type === "essay"
-                        ? "border-cyan-200 dark:border-cyan-800/80"
-                        : "border-red-200 dark:border-red-800/80"
-                    }`}
+                    className={`p-5 rounded-2xl border ${
+                      q.type === "essay"
+                        ? "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700"
+                        : isCorrect
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
+                        : "bg-red-50/70 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+                    } space-y-3 text-right`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-[#0077B6] dark:text-[#00A8E8]">
-                        سؤال {qIdx + 1} ({q.points || 1} {q.points === 1 ? "درجة" : "درجات"})
-                      </span>
+                    <div className="flex items-center justify-between text-xs font-black">
+                      <span className="text-slate-500 dark:text-slate-400">سؤال {qIdx + 1}</span>
                       <span
-                        className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                          isCorrect
-                            ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400"
-                            : q.type === "essay"
-                            ? "bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-400"
-                            : "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400"
+                        className={`px-3 py-1 rounded-xl font-bold ${
+                          q.type === "essay"
+                            ? "bg-cyan-100 dark:bg-cyan-900/60 text-[#0077B6] dark:text-cyan-300"
+                            : isCorrect
+                            ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300"
+                            : "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300"
                         }`}
                       >
-                        {isCorrect ? "✓ إجابة صحيحة" : q.type === "essay" ? "سؤال مقالي" : "✕ إجابة غير صحيحة"}
+                        {q.type === "essay" ? "سؤال مقالي" : isCorrect ? "إجابة صحيحة ✓" : "إجابة خاطئة ✗"}
                       </span>
                     </div>
 
-                    <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-relaxed">
+                    <p className="text-sm font-black text-slate-900 dark:text-white leading-relaxed">
                       {q.prompt}
-                    </h4>
+                    </p>
 
-                    {/* Choices Review */}
-                    {q.choices && q.choices.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {q.type !== "essay" && Array.isArray(q.choices) && (
+                      <div className="space-y-2 pt-2 text-xs">
                         {q.choices.map((c, cIdx) => {
-                          const isStudentPick = studentAns === cIdx;
-                          const isModelAnswer = q.correctIndex === cIdx;
+                          const wasSelected = studentAns === cIdx;
+                          const wasRight = q.correctIndex === cIdx;
+
+                          let choiceStyle = "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300";
+                          if (wasRight) {
+                            choiceStyle = "bg-emerald-100 dark:bg-emerald-900/70 border-emerald-400 text-emerald-800 dark:text-emerald-200 font-black";
+                          } else if (wasSelected && !wasRight) {
+                            choiceStyle = "bg-red-100 dark:bg-red-900/70 border-red-400 text-red-800 dark:text-red-200 font-black";
+                          }
 
                           return (
                             <div
                               key={cIdx}
-                              className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between ${
-                                isModelAnswer
-                                  ? "bg-emerald-50 dark:bg-emerald-950/50 border-emerald-400 text-emerald-800 dark:text-emerald-200 font-black"
-                                  : isStudentPick && !isCorrect
-                                  ? "bg-red-50 dark:bg-red-950/50 border-red-400 text-red-800 dark:text-red-200"
-                                  : "border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
-                              }`}
+                              className={`p-3 rounded-xl border flex items-center justify-between ${choiceStyle}`}
                             >
                               <span>{c}</span>
-                              {isModelAnswer && <span className="text-emerald-600 font-black">✓ الإجابة الصحيحة</span>}
-                              {isStudentPick && !isModelAnswer && <span className="text-red-500 font-black">اختيارك</span>}
+                              {wasRight && <Check size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                              {wasSelected && !wasRight && <X size={16} className="text-red-600 dark:text-red-400" />}
                             </div>
                           );
                         })}
-                      </div>
-                    ) : (
-                      <div className="space-y-2 text-xs font-bold">
-                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                          <p className="text-slate-400 mb-1">إجابتك المسجلة:</p>
-                          <p className="text-slate-800 dark:text-slate-100">{studentAns || "لم تتم الإجابة"}</p>
-                        </div>
-                        {q.modelAnswer && (
-                          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800">
-                            <p className="text-emerald-600 dark:text-emerald-400 font-black mb-1">الإجابة النموذجية:</p>
-                            <p className="text-emerald-800 dark:text-emerald-200">{q.modelAnswer}</p>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -902,6 +995,103 @@ export default function TakeExamPage() {
                   )}
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ EXIT WARNING MODAL (LEAVE / POPSTATE / HEADER CLICK) ══════════ */}
+      <AnimatePresence>
+        {exitWarningModalOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border-2 border-red-500 dark:border-red-600 shadow-2xl space-y-5 text-right"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto border border-red-200 dark:border-red-900/50">
+                <AlertCircle size={32} />
+              </div>
+
+              <div className="text-center space-y-2">
+                <h3 className="text-lg font-black text-red-600 dark:text-red-400">
+                  ⚠️ تنبيه حاسم: محاولة مغادرة الامتحان!
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                  مغادرة صفحة الامتحان الآن ستؤدي إلى <strong>تسليم الامتحان فوراً</strong> واحتساب إجاباتك الحالية فقط! ولن تتمكن من العودة للامتحان أو تعديل أي إجابة.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/40 text-xs font-bold text-red-700 dark:text-red-300 space-y-1.5 text-center">
+                <p>عدد الأسئلة التي تم حلها: <span className="font-black">{answeredCount}</span> من أصل <span className="font-black">{questions.length}</span></p>
+                <p>الوقت المتبقي: <span className="font-mono font-black" dir="ltr">{formatTime(timeLeft)}</span></p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setExitWarningModalOpen(false)}
+                  className="py-3 px-4 rounded-2xl bg-[#0077B6] hover:bg-[#00A8E8] text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20"
+                >
+                  <span>متابعة حل الامتحان</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setExitWarningModalOpen(false);
+                    handleFinalSubmit();
+                  }}
+                  className="py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-red-600/20"
+                >
+                  <Lock size={15} />
+                  <span>تأكيد الخروج والتسليم</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ TAB SWITCH / WINDOW BLUR WARNING MODAL ═══════════════════════ */}
+      <AnimatePresence>
+        {tabWarningModalOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border-2 border-amber-500 shadow-2xl space-y-5 text-right"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto border border-amber-300 dark:border-amber-800">
+                <AlertCircle size={32} />
+              </div>
+
+              <div className="text-center space-y-2">
+                <div className="inline-block px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-[11px] font-black">
+                  إنذار مغادرة الشاشة (1 من 2)
+                </div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  ⚠️ تم رصد مغادرة نافذة الامتحان!
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                  مغادرة صفحة الامتحان أو التبديل بين النوافذ والتطبيقات يعتبر مخالفة لأنظمة الاختبارات.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs font-black text-amber-800 dark:text-amber-200 text-center leading-relaxed">
+                🚨 تحذير نهائي: في حال مغادرة نافذة الامتحان مرة أخرى، سيتم تسليم الامتحان تلقائياً وفوراً بالدرجة الحالية!
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setTabWarningModalOpen(false)}
+                className="w-full py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-lg shadow-amber-500/20 cursor-pointer"
+              >
+                فهمت، والعودة لمتابعة الامتحان الآن
+              </button>
             </motion.div>
           </div>
         )}

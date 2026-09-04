@@ -362,6 +362,9 @@ function mapExam(exam) {
     price: Number(exam.price || 0),
     isFree: Boolean(exam.isFree || Number(exam.price || 0) === 0),
     isPublished: exam.isPublished !== false,
+    allowRetake: exam.allowRetake !== false,
+    hasAttempted: Boolean(exam.hasAttempted),
+    lastAttempt: exam.lastAttempt || null,
     minutes: Number(exam.minutes || 30),
     questionsCount: Number(exam.questionsCount || (exam.questions || []).length),
     questions: Array.isArray(exam.questions) ? exam.questions : [],
@@ -380,6 +383,7 @@ export async function createExam(payload) {
       price: payload.isFree ? 0 : Number(payload.price || 0),
       isFree: Boolean(payload.isFree),
       isPublished: payload.isPublished !== false,
+      allowRetake: payload.allowRetake !== false,
       minutes: Number(payload.minutes || 30),
       questions: (payload.questions || []).map((q, index) => ({
         questionId: q.questionId || `question_${index + 1}`,
