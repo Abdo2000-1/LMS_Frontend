@@ -20,7 +20,8 @@ import {
   Sparkles,
   RotateCcw,
   Eye,
-  FileQuestion
+  FileQuestion,
+  Lock
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { getExamById, submitExamAttempt } from "../services/courseService.js";
