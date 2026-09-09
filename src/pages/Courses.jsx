@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { BookOpen, PlayCircle, Search, Filter, Video, Edit3, Sparkles } from "lucide-react";
+import { BookOpen, PlayCircle, Search, Filter, Video, Edit3, Sparkles, Building2, Globe, Users } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { subscribeCourses, getCourseGrades } from "../services/courseService.js";
+import { subscribeCourses, getCourseGrades, parseLectureAudience, cleanLectureDescription } from "../services/courseService.js";
 import AppHeader from "../components/AppHeader.jsx";
 import Footer from "../components/Footer.jsx";
 
@@ -30,28 +30,20 @@ export default function Courses() {
   useEffect(() => subscribeCourses(setCourses), []);
 
   useEffect(() => {
-    getCourseGrades().then((data) => setGrades(data || []));
-  }, []);
+    const g = searchParams.get("grade");
+    if (g) setSelectedGrade(g);
+  }, [searchParams]);
 
   const enrolledSet = useMemo(() => new Set(user?.enrolledCourses || []), [user?.enrolledCourses]);
   const isTeacher = ["teacher", "admin", "developer"].includes(String(user?.role || "").toLowerCase());
 
-  const activeCategories = useMemo(() => {
-    const required = [
-      "الكل",
-      "الصف الأول الثانوي",
-      "الصف الثاني الثانوي",
-      "الصف الثالث الثانوي",
-      "الصف الثاني بكالوريا",
-      "الصف الثالث البكالوريا"
-    ];
-    const fromCourses = courses
-      .flatMap((c) => String(c.grade || "").split(new RegExp("[,;|]")))
-      .map((g) => g.trim())
-      .filter(Boolean);
-
-    return Array.from(new Set([...required, ...grades, ...fromCourses]));
-  }, [courses, grades]);
+  // Strictly 3 grades + "الكل"
+  const activeCategories = [
+    "الكل",
+    "الصف الأول الثانوي",
+    "الصف الثاني الثانوي",
+    "الصف الثالث الثانوي"
+  ];
 
   const filteredCourses = useMemo(() => {
     return courses.filter((course) => {
@@ -72,6 +64,30 @@ export default function Courses() {
 
   const fullCourses = useMemo(() => filteredCourses.filter((c) => !c.isStandalone), [filteredCourses]);
   const standaloneLectures = useMemo(() => filteredCourses.filter((c) => c.isStandalone), [filteredCourses]);
+
+  // Filter standalone lectures by audience (Online / Centers / All)
+  const visibleStandaloneLectures = useMemo(() => {
+    return standaloneLectures.filter((lecture) => {
+      if (isTeacher) return true;
+
+      const audience = parseLectureAudience(lecture.description);
+      if (audience.type === "all") return true;
+
+      const userCenter = String(user?.center || "").trim().toLowerCase();
+      if (audience.type === "online") {
+        return !userCenter || userCenter === "أونلاين" || userCenter === "online";
+      }
+      if (audience.type === "centers") {
+        if (!userCenter) return false;
+        return (audience.centers || []).some(
+          (c) =>
+            c.trim().toLowerCase() === userCenter ||
+            userCenter.includes(c.trim().toLowerCase())
+        );
+      }
+      return true;
+    });
+  }, [standaloneLectures, isTeacher, user?.center]);
 
   return (
     <div
@@ -125,22 +141,23 @@ export default function Courses() {
         </div>
 
         {/* ═══ SECTION 1: STANDALONE LECTURES (المحاضرات المتاحة - تظهر فقط عند اختيار صف دراسي محدد) ═══ */}
-        {selectedGrade !== "الكل" && standaloneLectures.length > 0 && (
+        {selectedGrade !== "الكل" && visibleStandaloneLectures.length > 0 && (
           <section className="space-y-6">
             <div className="flex items-center justify-between border-b border-cyan-100 dark:border-slate-800 pb-3">
               <h2 className="text-xl font-black text-[#0077B6] dark:text-[#00A8E8] flex items-center gap-2">
                 <Video className="text-[#FF6B35]" />
                 المحاضرات المتاحة المستقلة
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-cyan-100 text-[#0077B6] dark:bg-slate-800 dark:text-cyan-300">
-                  {standaloneLectures.length} محاضرة
+                  {visibleStandaloneLectures.length} محاضرة
                 </span>
               </h2>
             </div>
 
             <motion.div initial="hidden" animate="show" variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {standaloneLectures.map((lecture) => {
+              {visibleStandaloneLectures.map((lecture) => {
                 const enrolled = enrolledSet.has(lecture.id);
                 const finalPrice = getFinalPrice(lecture);
+                const aud = parseLectureAudience(lecture.description);
                 return (
                   <motion.div
                     key={lecture.id}
@@ -176,8 +193,27 @@ export default function Courses() {
                         {lecture.title}
                       </h3>
 
+                      {/* Audience Badge */}
+                      {aud.type === "online" && (
+                        <span className="text-[10px] font-black px-2.5 py-0.5 rounded-lg bg-cyan-50 text-[#0077B6] border border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-300 dark:border-cyan-800 flex items-center gap-1 w-max">
+                          <Globe size={11} />
+                          أونلاين فقط
+                        </span>
+                      )}
+                      {aud.type === "centers" && aud.centers?.length > 0 && (
+                        <span className="text-[10px] font-black px-2.5 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800 flex items-center gap-1 w-max">
+                          <Building2 size={11} />
+                          {isTeacher ? `السناتر المحددة: ${aud.centers.join("، ")}` : `سنتر: ${aud.centers.join("، ")}`}
+                        </span>
+                      )}
+                      {isTeacher && aud.type === "all" && (
+                        <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 w-max">
+                          <Users size={11} /> متاح للجميع
+                        </span>
+                      )}
+
                       <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 min-h-8 font-bold">
-                        {lecture.description || "محاضرة مستقلة غنية بالشرح، الملفات، وتدريبات الكويز التفاعلية."}
+                        {cleanLectureDescription(lecture.description) || "محاضرة مستقلة غنية بالشرح، الملفات، وتدريبات الكويز التفاعلية."}
                       </p>
 
                       <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-3">
@@ -186,9 +222,9 @@ export default function Courses() {
                         </span>
                         <div className="flex items-center gap-2">
                           {Number(lecture.discountPercent || 0) > 0 && (
-                            <span className="line-through text-slate-400">{lecture.price || 0} ج.م</span>
+                            <span className="line-through decoration-red-500 decoration-2 text-slate-400 font-bold text-xs">{lecture.price || 0} ج.م</span>
                           )}
-                          <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm">
+                          <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm sm:text-base">
                             {finalPrice === 0 ? "مجانية" : `${finalPrice} ج.م`}
                           </span>
                         </div>
@@ -282,7 +318,7 @@ export default function Courses() {
                     </h3>
 
                     <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 min-h-8 font-bold">
-                      {course.description || "كورس تعليمي شامل يغطي المنهج الدراسي بالفيديوهات والتدريبات."}
+                      {cleanLectureDescription(course.description) || "كورس تعليمي شامل يغطي المنهج الدراسي بالفيديوهات والتدريبات."}
                     </p>
 
                     <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-3">
@@ -291,9 +327,9 @@ export default function Courses() {
                       </span>
                       <div className="flex items-center gap-2">
                         {Number(course.discountPercent || 0) > 0 && (
-                          <span className="line-through text-slate-400">{course.price || 0} ج.م</span>
+                          <span className="line-through decoration-red-500 decoration-2 text-slate-400 font-bold text-xs">{course.price || 0} ج.م</span>
                         )}
-                        <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm">
+                        <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm sm:text-base">
                           {finalPrice === 0 ? "مجاني" : `${finalPrice} ج.م`}
                         </span>
                       </div>

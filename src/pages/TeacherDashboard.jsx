@@ -25,6 +25,9 @@ import {
   FileSpreadsheet,
   MessageCircle,
   Download,
+  Building2,
+  Copy,
+  Check,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -116,11 +119,22 @@ export default function TeacherDashboard() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
   const [studentGovernorateFilter, setStudentGovernorateFilter] = useState("");
+  const [studentCenterFilter, setStudentCenterFilter] = useState("");
+  const [copiedPhone, setCopiedPhone] = useState("");
   const [banSearch, setBanSearch] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  function copyToClipboard(text, id) {
+    if (!text) return;
+    try {
+      navigator.clipboard?.writeText(text);
+      setCopiedPhone(id);
+      setTimeout(() => setCopiedPhone(""), 2000);
+    } catch {}
+  }
 
   // Filter helper to exclude placeholder code-only accounts
   const isCodeStudent = (s) => {
@@ -155,6 +169,24 @@ export default function TeacherDashboard() {
   const governorateOptions = useMemo(() => {
     return [...new Set(students.filter(s => !isCodeStudent(s)).map((student) => student.governorate).filter(Boolean))]
       .sort((a, b) => String(a).localeCompare(String(b), "ar"));
+  }, [students]);
+
+  // Extract distinct centers and student counts per center
+  const centerCounts = useMemo(() => {
+    const counts = {};
+    students.filter(s => !isCodeStudent(s)).forEach((s) => {
+      const c = (s.center && String(s.center).trim()) ? String(s.center).trim() : "أونلاين";
+      counts[c] = (counts[c] || 0) + 1;
+    });
+    return counts;
+  }, [students]);
+
+  const centerOptions = useMemo(() => {
+    const centers = students
+      .filter(s => !isCodeStudent(s))
+      .map(s => ((s.center && String(s.center).trim()) ? String(s.center).trim() : "أونلاين"))
+      .filter(Boolean);
+    return [...new Set(centers)].sort((a, b) => String(a).localeCompare(String(b), "ar"));
   }, [students]);
 
   // Subscriptions
@@ -624,12 +656,17 @@ export default function TeacherDashboard() {
       const term = studentSearch.trim().toLowerCase();
       const matchesGovernorate = !studentGovernorateFilter || s.governorate === studentGovernorateFilter;
       if (!matchesGovernorate) return false;
+
+      const sCenter = (s.center && String(s.center).trim()) ? String(s.center).trim() : "أونلاين";
+      const matchesCenter = !studentCenterFilter || sCenter === studentCenterFilter;
+      if (!matchesCenter) return false;
+
       if (!term) return true;
-      return [s.name, s.phone, s.studentId, s.email, s.governorate].some(val =>
+      return [s.name, s.phone, s.parentPhone, s.studentId, s.email, s.governorate, s.center, sCenter, s.grade].some(val =>
         String(val || "").toLowerCase().includes(term)
       );
     });
-  }, [students, studentSearch, studentGovernorateFilter]);
+  }, [students, studentSearch, studentGovernorateFilter, studentCenterFilter]);
 
   const banFoundStudent = useMemo(() => {
     const term = banSearch.trim().toLowerCase();
@@ -835,7 +872,9 @@ export default function TeacherDashboard() {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">سجل الطلاب بالكامل</h3>
-                    <p className="text-[11px] text-slate-400 font-bold">إجمالي الطلاب: {students.length} طالب</p>
+                    <p className="text-[11px] text-slate-400 font-bold">
+                      عرض {filteredStudents.length} من أصل {students.filter(s => !isCodeStudent(s)).length} طالب مسجل
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     <button
@@ -845,21 +884,35 @@ export default function TeacherDashboard() {
                       title="تحميل شيت إكسيل يحتوي على جميع بيانات الطلاب وأولياء أمورهم"
                     >
                       <Download size={14} />
-                      استخراج شيت إكسيل لبيانات الطلاب
+                      استخراج شيت إكسيل
                     </button>
                     <div className="relative w-full sm:w-44">
                       <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
                         value={studentSearch}
                         onChange={(e) => setStudentSearch(e.target.value)}
-                        placeholder="بحث بالاسم أو ID..."
-                        className="w-full text-xs rounded-xl border border-slate-200 pr-8 pl-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                        placeholder="بحث بالاسم، السنتر، ID..."
+                        className="w-full text-xs rounded-xl border border-slate-200 pr-8 pl-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 font-bold"
                       />
                     </div>
                     <select
+                      value={studentCenterFilter}
+                      onChange={(e) => setStudentCenterFilter(e.target.value)}
+                      className="w-full sm:w-36 text-xs rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 font-bold"
+                      title="تصفية الطلاب حسب السنتر أو الأونلاين"
+                    >
+                      <option value="">كل السناتر / الحضور</option>
+                      {centerOptions.map((center) => (
+                        <option key={center} value={center}>
+                          {center} ({centerCounts[center] || 0})
+                        </option>
+                      ))}
+                    </select>
+                    <select
                       value={studentGovernorateFilter}
                       onChange={(e) => setStudentGovernorateFilter(e.target.value)}
-                      className="w-full sm:w-36 text-xs rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      className="w-full sm:w-32 text-xs rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 font-bold"
+                      title="تصفية الطلاب حسب المحافظة"
                     >
                       <option value="">كل المحافظات</option>
                       {governorateOptions.map((governorate) => (
@@ -869,62 +922,150 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
-                <div className="space-y-2 max-h-[30rem] overflow-y-auto pr-1">
+                {/* Quick Center Filter Pills */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 pb-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-[11px] font-extrabold text-slate-500 ml-1">تصفية سريعة بالسنتر:</span>
+                  <button
+                    type="button"
+                    onClick={() => setStudentCenterFilter("")}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-all ${
+                      !studentCenterFilter
+                        ? "bg-[#0077B6] text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                    }`}
+                  >
+                    الكل ({students.filter(s => !isCodeStudent(s)).length})
+                  </button>
+                  {centerOptions.map((c) => {
+                    const isSelected = studentCenterFilter === c;
+                    const count = centerCounts[c] || 0;
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setStudentCenterFilter(isSelected ? "" : c)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 ${
+                          isSelected
+                            ? "bg-[#0077B6] text-white shadow-sm"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                        }`}
+                      >
+                        <span>{c}</span>
+                        <span className={`text-[10px] px-1 rounded-full ${isSelected ? "bg-white/25 text-white" : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"}`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {(studentSearch || studentGovernorateFilter || studentCenterFilter) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStudentSearch("");
+                        setStudentGovernorateFilter("");
+                        setStudentCenterFilter("");
+                      }}
+                      className="text-[11px] text-red-500 hover:text-red-700 font-bold px-2 py-1 underline mr-auto"
+                    >
+                      إلغاء الفلاتر
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2.5 max-h-[32rem] overflow-y-auto pr-1">
                   {filteredStudents.map((s) => {
                     const enrolledBefore = s.enrolledCourses && s.enrolledCourses.length > 0;
+                    const sCenter = (s.center && String(s.center).trim()) ? String(s.center).trim() : "أونلاين";
+                    const isOnline = sCenter === "أونلاين";
                     return (
                       <div
                         key={s.uid}
                         className={`p-4 rounded-2xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 transition ${
-                          selectedStudentId === s.uid ? "border-[#0077B6] bg-blue-50/20" : "border-slate-100 bg-slate-50/40"
+                          selectedStudentId === s.uid ? "border-[#0077B6] bg-blue-50/20" : "border-slate-100 bg-slate-50/40 dark:bg-slate-800/40 dark:border-slate-800"
                         }`}
                       >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-extrabold text-slate-950">{s.name}</span>
-                            <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
+                        <div className="space-y-1.5 flex-1 text-right">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-slate-950 dark:text-white text-sm">{s.name}</span>
+                            <span className="text-[10px] bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200 px-2 py-0.5 rounded-full font-bold">
                               ID: {s.studentId || "عشوائي"}
                             </span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                              isOnline
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                                : "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800"
+                            }`}>
+                              {isOnline ? "🌐 أونلاين" : `🏢 سنتر: ${sCenter}`}
+                            </span>
+                            {s.grade && (
+                              <span className="text-[10px] bg-cyan-50 text-[#0077B6] border border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-300 dark:border-cyan-800 px-2 py-0.5 rounded-full font-bold">
+                                🎓 {s.grade}
+                              </span>
+                            )}
                           </div>
-                          <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 font-bold">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 font-bold">
                             {s.phone ? (
-                              <button
-                                type="button"
-                                onClick={() => openWhatsAppStudent(s.phone, s.name, s.studentId)}
-                                className="text-cyan-700 hover:text-cyan-900 hover:underline flex items-center gap-1 font-extrabold"
-                                title="مراسلة الطالب على واتساب فوراً"
-                              >
-                                <MessageCircle size={13} className="text-emerald-500" />
-                                الطالب: {s.phone}
-                              </button>
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => openWhatsAppStudent(s.phone, s.name, s.studentId)}
+                                  className="text-cyan-700 dark:text-cyan-400 hover:underline flex items-center gap-1 font-extrabold"
+                                  title="مراسلة الطالب على واتساب فوراً"
+                                >
+                                  <MessageCircle size={13} className="text-emerald-500" />
+                                  الطالب: {s.phone}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(s.phone, `st_${s.uid}`)}
+                                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                                  title="نسخ رقم الطالب"
+                                >
+                                  {copiedPhone === `st_${s.uid}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                                </button>
+                              </div>
                             ) : (
                               <span>الطالب: غير مسجل</span>
                             )}
-                            {s.parentPhone && s.parentPhone !== "غير مسجل" && (
-                              <button
-                                type="button"
-                                onClick={() => openWhatsAppParent(s.parentPhone, s.name, s.studentId)}
-                                className="text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1 font-black"
-                                title="مراسلة ولي الأمر على واتساب فوراً"
-                              >
-                                <MessageCircle size={13} className="text-emerald-500" />
-                                الولي: {s.parentPhone}
-                              </button>
+
+                            {s.parentPhone && s.parentPhone !== "غير مسجل" ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => openWhatsAppParent(s.parentPhone, s.name, s.studentId)}
+                                  className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-black"
+                                  title="مراسلة ولي الأمر على واتساب فوراً"
+                                >
+                                  <MessageCircle size={13} className="text-emerald-500" />
+                                  الولي: {s.parentPhone}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(s.parentPhone, `pt_${s.uid}`)}
+                                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                                  title="نسخ رقم ولي الأمر"
+                                >
+                                  {copiedPhone === `pt_${s.uid}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">الولي: غير مسجل</span>
                             )}
-                            <span>· {s.governorate} · {s.grade}</span>
+
+                            <span>📍 {s.governorate || "غير محدد"}</span>
                           </div>
                           <p className="text-[11px] text-slate-400">
-                            حالة الكورسات السابقة:{" "}
-                            <span className={enrolledBefore ? "text-emerald-600 font-black" : "text-slate-400 font-bold"}>
-                              {enrolledBefore ? "مشترك في كورس سابق" : "لا يوجد اشتراكات"}
+                            حالة الكورسات:{" "}
+                            <span className={enrolledBefore ? "text-emerald-600 dark:text-emerald-400 font-black" : "text-slate-400 font-bold"}>
+                              {enrolledBefore ? `مشترك في ${s.enrolledCourses.length} كورس` : "لا يوجد اشتراكات"}
                             </span>
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
                             onClick={() => setSelectedStudentId(s.uid)}
-                            className="text-xs bg-[#0077B6] text-white font-extrabold px-3 py-1.5 rounded-xl hover:bg-[#005f92] transition"
+                            className="text-xs bg-[#0077B6] text-white font-extrabold px-3.5 py-1.5 rounded-xl hover:bg-[#005f92] transition shadow-sm"
                           >
                             تحديد
                           </button>
@@ -932,7 +1073,7 @@ export default function TeacherDashboard() {
                             type="button"
                             onClick={() => {
                               setSelectedStudentId(s.uid);
-                              setBanSearch(s.phone);
+                              setBanSearch(s.phone || s.name);
                             }}
                             className="text-xs bg-[#FF6B35]/10 text-[#FF6B35] font-extrabold px-3 py-1.5 rounded-xl hover:bg-[#FF6B35]/20 transition"
                           >
@@ -942,7 +1083,11 @@ export default function TeacherDashboard() {
                       </div>
                     );
                   })}
-                  {filteredStudents.length === 0 && <p className="text-sm text-slate-500 text-center py-6">لا يوجد نتائج تطابق البحث.</p>}
+                  {filteredStudents.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500">
+                      لا يوجد طلاب مطابقين للبحث أو الفلتر المحدد.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1263,18 +1408,15 @@ export default function TeacherDashboard() {
                     <select
                       value={courseForm.grade}
                       onChange={(e) => setCourseForm((p) => ({ ...p, grade: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6] dark:border-slate-700 dark:bg-slate-800 dark:text-white font-bold"
                     >
                       <option>الصف الأول الثانوي</option>
                       <option>الصف الثاني الثانوي</option>
                       <option>الصف الثالث الثانوي</option>
-                      <option>الصف الثاني بكالوريا</option>
-                      <option>الصف الثالث البكالوريا</option>
-                      <option>الصف الثالث الثانوي, الصف الثالث البكالوريا</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1">السعر (ج.م)</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">السعر الأصلي (ج.م)</label>
                     <input
                       disabled={courseForm.isFree}
                       type="number"
@@ -1282,11 +1424,11 @@ export default function TeacherDashboard() {
                       value={courseForm.price}
                       onChange={(e) => setCourseForm((p) => ({ ...p, price: e.target.value }))}
                       placeholder="السعر بالجنيه"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6]"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6] font-bold"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1">الخصم (%)</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">نسبة الخصم (%)</label>
                     <input
                       disabled={courseForm.isFree}
                       type="number"
@@ -1295,10 +1437,34 @@ export default function TeacherDashboard() {
                       value={courseForm.discountPercent}
                       onChange={(e) => setCourseForm((p) => ({ ...p, discountPercent: e.target.value }))}
                       placeholder="خصم الكورس"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6]"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs outline-none focus:border-[#0077B6] font-bold"
                     />
                   </div>
                 </div>
+
+                {/* Live Price Preview */}
+                {!courseForm.isFree && Number(courseForm.price || 0) > 0 && (
+                  <div className="rounded-xl bg-cyan-50/80 border border-cyan-200 dark:bg-slate-800 dark:border-slate-700 p-3 flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-200">
+                    <span>معاينة عرض السعر للطلاب:</span>
+                    <div className="flex items-center gap-2">
+                      {Number(courseForm.discountPercent || 0) > 0 && (
+                        <span className="line-through decoration-red-500 decoration-2 text-slate-400 text-[11px]">
+                          {courseForm.price} ج.م
+                        </span>
+                      )}
+                      <span className="text-[#0077B6] dark:text-cyan-400 text-sm">
+                        {Number(courseForm.discountPercent || 0) > 0
+                          ? Math.round(Number(courseForm.price) * (1 - Number(courseForm.discountPercent) / 100))
+                          : courseForm.price} ج.م
+                      </span>
+                      {Number(courseForm.discountPercent || 0) > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">
+                          خصم {courseForm.discountPercent}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-5 py-2">
                   <label className="inline-flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-700">

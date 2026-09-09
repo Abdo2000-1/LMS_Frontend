@@ -429,192 +429,136 @@ export default function Home() {
             </motion.div>
           </section>
           <section id="courses" className="relative z-10 max-w-7xl mx-auto px-6 sm:px-10 py-20" aria-labelledby="courses-title">
-            <div className="flex flex-col gap-6 mb-8">
-              <div className="flex flex-col sm:flex-row-reverse items-center sm:items-start justify-between gap-4">
-                <h2 id="courses-title" className="text-3xl sm:text-4xl font-extrabold text-center sm:text-right">
-                  كورساتنا المتاحة للعام 2026/2027
-                </h2>
-                <Link
-                  to="/courses"
-                  className="inline-flex min-w-24 items-center justify-center bg-slate-950 text-white font-bold px-8 py-3 rounded-sm hover:bg-chem-deep transition-all duration-300 active:scale-95"
-                >
-                  الكل
-                </Link>
+            <div className="text-center max-w-3xl mx-auto mb-12 space-y-4">
+              <div className="inline-flex items-center gap-2 bg-chem-cta/10 text-chem-cta font-extrabold px-4 py-1.5 rounded-full text-xs border border-chem-cta/20">
+                <GraduationCap size={16} />
+                <span>المراحل الدراسية والكورسات لعام 2026/2027</span>
               </div>
-              {searchOpen && (
-                <div className="rounded-2xl border border-chem-light/20 bg-white/75 dark:bg-slate-900/75 backdrop-blur-xl p-3 shadow-lg shadow-chem-light/10">
-                  <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-                    <div className="relative flex-1">
-                      <Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        ref={searchInputRef}
-                        type="search"
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") scrollToSection("#courses");
-                        }}
-                        placeholder="ابحث باسم الكورس أو الصف..."
-                        className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white/85 dark:bg-slate-950/70 pr-11 pl-4 py-3 text-sm outline-none focus:border-chem-light focus:ring-2 focus:ring-chem-light/30"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 px-2">
-                        {visibleCourses.length} نتيجة
-                      </span>
-                      {searchTerm && (
-                        <button
-                          type="button"
-                          onClick={() => setSearchTerm("")}
-                          className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm font-bold hover:border-chem-cta hover:text-chem-cta transition-colors duration-200"
-                        >
-                          <Eraser size={16} />
-                          مسح
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setSearchOpen(false)}
-                        aria-label="إغلاق البحث"
-                        className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-center hover:border-chem-light hover:text-chem-light transition-colors duration-200"
-                      >
-                        <XIcon size={18} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <h2 id="courses-title" className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white">
+                اختر صفك الدراسي
+              </h2>
+              <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-bold">
+                حدد مرحلتك الدراسية للوصول مباشرة إلى الكورسات والمحاضرات الخاصة بك
+              </p>
             </div>
-            <div className="relative">
-              {visibleCourses.length > 0 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => goToCoursePage("prev")}
-                    aria-label="الكورسات السابقة"
-                    className="absolute right-0 top-1/2 z-20 hidden sm:flex h-11 w-11 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-chem-cta/30 bg-white/85 text-chem-cta shadow-lg backdrop-blur hover:bg-chem-cta hover:text-white transition-all duration-300"
-                  >
-                    <ArrowRight size={22} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => goToCoursePage("next")}
-                    aria-label="الكورسات التالية"
-                    className="absolute left-0 top-1/2 z-20 hidden sm:flex h-11 w-11 -translate-y-1/2 -translate-x-1/2 items-center justify-center rounded-full border border-chem-cta/30 bg-white/85 text-chem-cta shadow-lg backdrop-blur hover:bg-chem-cta hover:text-white transition-all duration-300"
-                  >
-                    <ArrowLeft size={22} />
-                  </button>
-                </>
-              )}
-              <motion.div
-                key={`${currentPage}-${cardsPerPage}-${searchTerm}`}
-                initial="hidden"
-                animate="show"
-                variants={stagger}
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
-              >
-                {pagedCourses.map((course) => {
-                  const finalPrice = getFinalPrice(course);
-                  return (
-                  <motion.article
-                    key={course.id}
+
+            {/* 3 Main Grade Cards */}
+            <motion.div
+              initial="hidden"
+              whileInView="show"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8"
+            >
+              {[
+                {
+                  grade: "الصف الأول الثانوي",
+                  shortName: "أولى ثانوي",
+                  subtitle: "كيمياء 1 ثانوي",
+                  description: "تأسيس شامل ومتين في مبادئ الكيمياء، الجدول الدوري، والتفاعلات الكيميائية بطرق تفاعلية مبسطة.",
+                  icon: Atom,
+                  gradient: "from-sky-500 to-cyan-600",
+                  bgLight: "bg-sky-50 dark:bg-sky-950/30",
+                  border: "border-sky-200 dark:border-sky-800",
+                  textColor: "text-sky-600 dark:text-cyan-400",
+                  buttonBg: "bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700",
+                  count: liveCourses.filter((c) => !c.isStandalone && String(c.grade || "").includes("الأول")).length,
+                },
+                {
+                  grade: "الصف الثاني الثانوي",
+                  shortName: "تانية ثانوي",
+                  subtitle: "كيمياء 2 ثانوي",
+                  description: "شرح معمق للمنهج وحل تدريبات مكثفة على بنية الذرة والروابط الكيميائية تؤهلك مباشرة للثانوية العامة.",
+                  icon: FlaskConical,
+                  gradient: "from-[#FF6B35] to-orange-600",
+                  bgLight: "bg-orange-50 dark:bg-orange-950/30",
+                  border: "border-orange-200 dark:border-orange-800",
+                  textColor: "text-[#FF6B35] dark:text-orange-400",
+                  buttonBg: "bg-gradient-to-r from-[#FF6B35] to-orange-600 hover:from-[#f05e26] hover:to-orange-700",
+                  count: liveCourses.filter((c) => !c.isStandalone && String(c.grade || "").includes("الثاني")).length,
+                },
+                {
+                  grade: "الصف الثالث الثانوي",
+                  shortName: "تالتة ثانوي (الشهادة)",
+                  subtitle: "دفعة التقفيل والدرجة النهائية",
+                  description: "الرحلة الكاملة لتقفيل كيمياء الثانوية العامة: أقوى شرح، مراجعات أسبوعية، وبنك أسئلة النظام الحديث.",
+                  icon: Sparkles,
+                  gradient: "from-[#0077B6] to-indigo-600",
+                  bgLight: "bg-blue-50 dark:bg-blue-950/30",
+                  border: "border-blue-200 dark:border-blue-800",
+                  textColor: "text-[#0077B6] dark:text-cyan-300",
+                  buttonBg: "bg-gradient-to-r from-[#0077B6] to-indigo-600 hover:from-[#005f92] hover:to-indigo-700",
+                  count: liveCourses.filter((c) => !c.isStandalone && String(c.grade || "").includes("الثالث")).length,
+                },
+              ].map((item, idx) => {
+                const Icon = item.icon;
+                return (
+                  <motion.div
+                    key={idx}
                     variants={fadeUp}
-                    whileHover={{ y: -5 }}
-                    className="bg-white/90 dark:bg-slate-900/90 rounded-lg border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:shadow-chem-light/10 transition-all duration-300 overflow-hidden flex flex-col"
+                    whileHover={{ y: -8 }}
+                    className="relative group rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-7 sm:p-8 shadow-sm hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-300 flex flex-col justify-between overflow-hidden text-right"
                   >
-                    <div className="relative h-48 w-full overflow-hidden bg-slate-100 dark:bg-slate-800">
-                      {course.thumbnailUrl ? (
-                        <img
-                          src={course.thumbnailUrl}
-                          alt={course.title}
-                          className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
-                        />
-                      ) : (
-                        <div className="h-full w-full bg-gradient-to-br from-chem-deep to-chem-light flex items-center justify-center text-white">
-                          <FlaskConical size={48} strokeWidth={1.3} />
+                    {/* Top decoration glow */}
+                    <div className={`absolute top-0 right-0 left-0 h-2 bg-gradient-to-r ${item.gradient}`} />
+
+                    <div className="space-y-5">
+                      <div className="flex items-center justify-between">
+                        <div className={`w-14 h-14 rounded-2xl ${item.bgLight} ${item.textColor} flex items-center justify-center border ${item.border} shadow-sm group-hover:scale-110 transition-transform duration-300`}>
+                          <Icon size={28} />
                         </div>
-                      )}
-                      {Number(course.discountPercent || 0) > 0 && (
-                        <span className="absolute right-3 top-3 rounded-full bg-chem-cta px-3 py-1 text-xs font-extrabold text-white shadow">
-                          خصم {course.discountPercent}%
+                        <span className={`text-xs font-black px-3 py-1 rounded-full ${item.bgLight} ${item.textColor} border ${item.border}`}>
+                          {item.shortName}
                         </span>
-                      )}
-                    </div>
-                    <div className="p-4 flex flex-1 flex-col gap-3 text-right">
-                      <h3 className="min-h-11 text-sm font-extrabold leading-relaxed text-slate-950 dark:text-white">
-                        {course.title}
-                      </h3>
-                      <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        <span className="inline-flex items-center gap-1">
-                          <Calendar size={13} />
-                          متاح الآن
-                        </span>
-                        <span className="font-extrabold text-chem-cta">{formatPrice(course.price)}</span>
                       </div>
-                      <p className="line-clamp-2 min-h-10 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                        {course.description || course.grade || "ابدأ الكورس وتابع تقدمك خطوة بخطوة."}
+
+                      <div>
+                        <span className="text-xs font-extrabold text-slate-400 dark:text-slate-500 block mb-1">
+                          {item.subtitle}
+                        </span>
+                        <h3 className="text-2xl font-black text-slate-900 dark:text-white group-hover:text-[#0077B6] dark:group-hover:text-cyan-400 transition-colors">
+                          {item.grade}
+                        </h3>
+                      </div>
+
+                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-bold min-h-14">
+                        {item.description}
                       </p>
-                      <div className="mt-auto flex flex-col gap-2 pt-1">
-                        <Link
-                          to={isAuthenticated ? `/courses/${course.id}` : "/login"}
-                          className="text-center border border-chem-cta text-chem-cta rounded-lg py-2 text-sm font-extrabold hover:bg-chem-cta hover:text-white transition-all duration-300 active:scale-[0.97]"
-                        >
-                          الدخول للكورس
-                        </Link>
-                        {!isTeacherUser && (
-                          <Link
-                            to={finalPrice === 0 ? (isAuthenticated ? `/courses/${course.id}` : "/register") : (isAuthenticated ? `/courses/${course.id}/payment` : "/register")}
-                            className="text-center bg-chem-cta text-white rounded-lg py-2 text-sm font-extrabold hover:bg-chem-cta/90 hover:shadow-md hover:shadow-chem-cta/30 transition-all duration-300 active:scale-[0.97]"
-                          >
-                            {finalPrice === 0 ? "كورس مجاني" : "الإشتراك في الكورس"}
-                          </Link>
-                        )}
+
+                      <div className="pt-3 flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800">
+                        <span>المحتوى التعليمي المتاح:</span>
+                        <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                          {item.count > 0 ? `${item.count} كورس متاح` : "متاح بالكامل"}
+                        </span>
                       </div>
                     </div>
-                  </motion.article>
-                  );
-                })}
-              </motion.div>
-              {visibleCourses.length === 0 && (
-                <div className="rounded-lg border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-slate-500 dark:text-slate-400">
-                  لا توجد كورسات مطابقة للبحث حاليًا.
-                </div>
-              )}
+
+                    <div className="pt-6 mt-4">
+                      <Link
+                        to={`/courses?grade=${encodeURIComponent(item.grade)}`}
+                        className={`w-full py-3.5 px-6 rounded-2xl text-white font-extrabold text-sm shadow-md hover:shadow-xl transition-all duration-300 active:scale-95 flex items-center justify-center gap-2 ${item.buttonBg}`}
+                      >
+                        <span>استعراض كورسات {item.shortName}</span>
+                        <ArrowLeft size={16} />
+                      </Link>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </motion.div>
+
+            {/* Bottom link to view all */}
+            <div className="mt-12 text-center">
+              <Link
+                to="/courses"
+                className="inline-flex items-center gap-2 text-sm font-black text-slate-600 dark:text-slate-300 hover:text-chem-cta dark:hover:text-cyan-400 transition-colors py-2 px-5 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-chem-cta bg-white/60 dark:bg-slate-900/60 backdrop-blur"
+              >
+                <span>أو استعرض جميع الكورسات والمحاضرات العامة في المنصة</span>
+                <ArrowLeft size={15} />
+              </Link>
             </div>
-            {visibleCourses.length > 0 && (
-              <div className="mt-7 flex items-center justify-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => goToCoursePage("prev")}
-                  aria-label="السابق"
-                  className="sm:hidden h-10 w-10 rounded-full border border-chem-cta/30 bg-white text-chem-cta flex items-center justify-center"
-                >
-                  <ArrowRight size={20} />
-                </button>
-                <div className="flex items-center justify-center gap-2">
-                  {Array.from({ length: pageCount }).map((_, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      onClick={() => setCoursePage(index)}
-                      aria-label={`عرض صفحة الكورسات ${index + 1}`}
-                      className={`h-2.5 rounded-full transition-all duration-300 ${
-                        index === currentPage ? "w-6 bg-chem-cta" : "w-2.5 bg-slate-300 dark:bg-slate-700 hover:bg-chem-cta/60"
-                      }`}
-                    />
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => goToCoursePage("next")}
-                  aria-label="التالي"
-                  className="sm:hidden h-10 w-10 rounded-full border border-chem-cta/30 bg-white text-chem-cta flex items-center justify-center"
-                >
-                  <ArrowLeft size={20} />
-                </button>
-              </div>
-            )}
           </section>
+
           {liveExams.length > 0 && (
             <section id="exams" className="relative z-10 max-w-7xl mx-auto px-6 sm:px-10 pb-20" aria-labelledby="exams-title">
               <div className="mb-8 flex flex-col sm:flex-row-reverse items-center sm:items-start justify-between gap-4">

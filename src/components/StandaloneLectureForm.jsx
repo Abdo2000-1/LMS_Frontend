@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Video,
   Upload,
@@ -10,11 +10,15 @@ import {
   Sparkles,
   AlertCircle,
   Layers,
-  DollarSign
+  DollarSign,
+  Users,
+  Globe,
+  Building2,
+  Check
 } from "lucide-react";
 import apiClient from "../lib/apiClient.js";
 import { uploadImageToStorage, uploadFileToStorage } from "../services/storageService.js";
-import { createCourse, updateCourse } from "../services/courseService.js";
+import { createCourse, updateCourse, parseLectureAudience, cleanLectureDescription, getTenantStudents } from "../services/courseService.js";
 
 const emptyQuestion = () => ({
   id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
@@ -28,9 +32,16 @@ const emptyQuestion = () => ({
 });
 
 export default function StandaloneLectureForm({ initialLecture = null, onSaved, onCancel }) {
+  const initialAudience = parseLectureAudience(initialLecture?.description || "");
+
   const [title, setTitle] = useState(initialLecture?.title || "");
-  const [description, setDescription] = useState(initialLecture?.description || "");
+  const [description, setDescription] = useState(cleanLectureDescription(initialLecture?.description || ""));
   const [grade, setGrade] = useState(initialLecture?.grade || "الصف الثالث الثانوي");
+  const [targetAudience, setTargetAudience] = useState(initialAudience.type || "all"); // "all" | "online" | "centers"
+  const [selectedCenters, setSelectedCenters] = useState(initialAudience.centers || []);
+  const [customCenterInput, setCustomCenterInput] = useState("");
+  const [availableCenters, setAvailableCenters] = useState(["سنتر حورس", "سنتر الحرمين"]);
+
   const [price, setPrice] = useState(initialLecture ? String(initialLecture.price || 0) : "50");
   const [discountPercent, setDiscountPercent] = useState(initialLecture ? String(initialLecture.discountPercent || 0) : "0");
   const [isFree, setIsFree] = useState(Boolean(initialLecture ? initialLecture.price === 0 : false));
@@ -72,12 +83,39 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
   const gradesList = [
     "الصف الأول الثانوي",
     "الصف الثاني الثانوي",
-    "الصف الثالث الثانوي",
-    "الصف الثاني بكالوريا",
-    "الصف الثالث البكالوريا",
-    "الصف الثاني الثانوي, الصف الثاني بكالوريا",
-    "الصف الثالث الثانوي, الصف الثالث البكالوريا"
+    "الصف الثالث الثانوي"
   ];
+
+  useEffect(() => {
+    getTenantStudents()
+      .then((students) => {
+        const centersFromStudents = (students || [])
+          .map((s) => s.center?.trim())
+          .filter((c) => c && c !== "أونلاين");
+        if (centersFromStudents.length > 0) {
+          setAvailableCenters((prev) => [...new Set([...prev, ...centersFromStudents])]);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  function toggleCenter(centerName) {
+    setSelectedCenters((prev) =>
+      prev.includes(centerName) ? prev.filter((c) => c !== centerName) : [...prev, centerName]
+    );
+  }
+
+  function addCustomCenter() {
+    const trimmed = customCenterInput.trim();
+    if (!trimmed) return;
+    if (!availableCenters.includes(trimmed)) {
+      setAvailableCenters((prev) => [...prev, trimmed]);
+    }
+    if (!selectedCenters.includes(trimmed)) {
+      setSelectedCenters((prev) => [...prev, trimmed]);
+    }
+    setCustomCenterInput("");
+  }
 
   async function handleImageUpload(e) {
     const file = e.target.files?.[0];
@@ -233,9 +271,21 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
           ]
         : [];
 
+      if (targetAudience === "centers" && selectedCenters.length === 0) {
+        setError("من فضلك اختر سنتر واحد على الأقل، أو اختر 'الكل' لجميع الطلاب.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const audienceTag = `<!--TARGET_AUDIENCE:${JSON.stringify({
+        type: targetAudience,
+        centers: targetAudience === "centers" ? selectedCenters : []
+      })}-->`;
+      const finalDescription = `${description.trim()} ${audienceTag}`.trim();
+
       const payload = {
         title: title.trim(),
-        description: description.trim(),
+        description: finalDescription,
         grade: grade.trim(),
         price: isFree ? 0 : Number(price || 0),
         discountPercent: isFree ? 0 : Number(discountPercent || 0),
@@ -361,6 +411,133 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
                 <span>{isUploadingImage ? "جاري رفع الغلاف..." : thumbnailUrl ? "✓ تم اختيار الغلاف" : "اختر صورة الغلاف"}</span>
                 <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
               </label>
+            </div>
+
+            {/* Target Audience Selector */}
+            <div className="sm:col-span-2 pt-2 pb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                تحديد الجمهور المستهدف (من تظهر له هذه المحاضرة؟):
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTargetAudience("all")}
+                  className={`p-3.5 rounded-2xl border text-right transition-all flex items-start gap-3 ${
+                    targetAudience === "all"
+                      ? "border-[#0077B6] bg-cyan-50/80 dark:bg-cyan-950/40 text-[#0077B6] dark:text-cyan-300 ring-2 ring-[#0077B6]/20"
+                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl shrink-0 ${targetAudience === "all" ? "bg-[#0077B6] text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500"}`}>
+                    <Users size={18} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black block">الكل (متاح للجميع)</span>
+                    <span className="text-[11px] opacity-80 block mt-0.5">تظهر لطلاب الأونلاين وجميع السناتر</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTargetAudience("online")}
+                  className={`p-3.5 rounded-2xl border text-right transition-all flex items-start gap-3 ${
+                    targetAudience === "online"
+                      ? "border-[#0077B6] bg-cyan-50/80 dark:bg-cyan-950/40 text-[#0077B6] dark:text-cyan-300 ring-2 ring-[#0077B6]/20"
+                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl shrink-0 ${targetAudience === "online" ? "bg-[#0077B6] text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500"}`}>
+                    <Globe size={18} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black block">أونلاين فقط</span>
+                    <span className="text-[11px] opacity-80 block mt-0.5">تظهر فقط لطلاب نظام الأونلاين</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTargetAudience("centers")}
+                  className={`p-3.5 rounded-2xl border text-right transition-all flex items-start gap-3 ${
+                    targetAudience === "centers"
+                      ? "border-[#0077B6] bg-cyan-50/80 dark:bg-cyan-950/40 text-[#0077B6] dark:text-cyan-300 ring-2 ring-[#0077B6]/20"
+                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl shrink-0 ${targetAudience === "centers" ? "bg-[#0077B6] text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500"}`}>
+                    <Building2 size={18} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black block">سناتر محددة</span>
+                    <span className="text-[11px] opacity-80 block mt-0.5">تظهر لسنتر معين أو أكثر من سنتر</span>
+                  </div>
+                </button>
+              </div>
+
+              {/* Multi-Select Centers Panel */}
+              {targetAudience === "centers" && (
+                <div className="mt-3 p-4 rounded-2xl border border-dashed border-[#0077B6]/40 bg-slate-50/70 dark:bg-slate-900/60 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                      حدد السناتر التي تظهر لها هذه المحاضرة:
+                    </span>
+                    <span className="text-[11px] font-extrabold text-[#0077B6] dark:text-cyan-400">
+                      تم اختيار: {selectedCenters.length} سنتر
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {availableCenters.map((c) => {
+                      const isSelected = selectedCenters.includes(c);
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => toggleCenter(c)}
+                          className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${
+                            isSelected
+                              ? "bg-[#0077B6] text-white shadow-sm"
+                              : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
+                          }`}
+                        >
+                          {isSelected && <Check size={14} />}
+                          <span>{c}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add Custom Center Input */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
+                    <input
+                      type="text"
+                      value={customCenterInput}
+                      onChange={(e) => setCustomCenterInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCustomCenter();
+                        }
+                      }}
+                      placeholder="اكتب اسم سنتر آخر ثم اضغط إضافة..."
+                      className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs outline-none focus:border-[#0077B6] font-bold dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomCenter}
+                      className="bg-slate-800 dark:bg-slate-700 hover:bg-slate-900 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition"
+                    >
+                      + إضافة سنتر
+                    </button>
+                  </div>
+
+                  {selectedCenters.length === 0 && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400 font-bold">
+                      ⚠️ يرجى تحديد سنتر واحد على الأقل، أو اختيار "الكل" لتظهر لجميع الطلاب.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

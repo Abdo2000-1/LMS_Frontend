@@ -657,4 +657,22 @@ export async function parseExamText(text, title = "") {
   }
 }
 
+export function parseLectureAudience(description = "") {
+  if (!description) return { type: "all", centers: [] };
+  const match = String(description).match(/<!--TARGET_AUDIENCE:(.*?)-->/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      return {
+        type: parsed.type || "all",
+        centers: Array.isArray(parsed.centers) ? parsed.centers : []
+      };
+    } catch {}
+  }
+  return { type: "all", centers: [] };
+}
 
+export function cleanLectureDescription(description = "") {
+  if (!description) return "";
+  return String(description).replace(/<!--TARGET_AUDIENCE:(.*?)-->/g, "").trim();
+}
