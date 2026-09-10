@@ -28,6 +28,8 @@ import {
   Building2,
   Copy,
   Check,
+  Edit3,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -48,6 +50,7 @@ import {
   subscribeCourses,
   subscribeQuizAttempts,
   unblockStudent,
+  updateStudentId,
   addLessonToModule
 } from "../services/courseService.js";
 import { approvePaymentRequest, subscribePaymentRequests, subscribePayments } from "../services/paymentService.js";
@@ -67,7 +70,8 @@ const tabs = [
   { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet },
   { id: "add-course", label: "إضافة كورس جديد", icon: PlusCircle },
   { id: "add-standalone-lecture", label: "إضافة محاضرة مستقلة", icon: Video },
-  { id: "add-exam", label: "إضافة امتحان جديد", icon: HelpCircle },
+  { id: "add-quiz", label: "إضافة كويز جديد (AI)", icon: HelpCircle },
+  { id: "add-exam", label: "إضافة امتحان جديد", icon: FileText },
 ];
 
 function formatDate(value) {
@@ -134,6 +138,45 @@ export default function TeacherDashboard() {
       setCopiedPhone(id);
       setTimeout(() => setCopiedPhone(""), 2000);
     } catch {}
+  }
+
+  // Teacher Student ID Editing State & Handler
+  const [editingStudentIdUid, setEditingStudentIdUid] = useState(null);
+  const [newStudentIdValue, setNewStudentIdValue] = useState("");
+  const [isSavingStudentId, setIsSavingStudentId] = useState(false);
+
+  async function handleSaveStudentId(studentUid) {
+    const trimmed = String(newStudentIdValue || "").trim();
+    if (!trimmed) {
+      setError("كود الطالب لا يمكن أن يكون فارغاً.");
+      return;
+    }
+    if (trimmed.length > 20) {
+      setError("كود الطالب يجب ألا يتجاوز 20 حرفاً.");
+      return;
+    }
+    setIsSavingStudentId(true);
+    setError("");
+    setNotice("");
+    try {
+      const res = await updateStudentId(studentUid, trimmed);
+      setNotice(res.message || "تم تحديث كود الطالب بنجاح.");
+      // Update students list in state
+      setStudents(prev => prev.map(s => s.uid === studentUid ? { ...s, studentId: trimmed } : s));
+      // Update selected student detail if matching
+      setSelectedStudentDetail(prev => {
+        if (prev && prev.uid === studentUid) {
+          return { ...prev, studentId: trimmed };
+        }
+        return prev;
+      });
+      setEditingStudentIdUid(null);
+      setNewStudentIdValue("");
+    } catch (err) {
+      setError(err.message || "فشل تحديث كود الطالب.");
+    } finally {
+      setIsSavingStudentId(false);
+    }
   }
 
   // Filter helper to exclude placeholder code-only accounts
@@ -987,9 +1030,55 @@ export default function TeacherDashboard() {
                         <div className="space-y-1.5 flex-1 text-right">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-extrabold text-slate-950 dark:text-white text-sm">{s.name}</span>
-                            <span className="text-[10px] bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200 px-2 py-0.5 rounded-full font-bold">
-                              ID: {s.studentId || "عشوائي"}
-                            </span>
+                            {editingStudentIdUid === s.uid ? (
+                              <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-[#0077B6] rounded-xl px-1.5 py-0.5 shadow-sm">
+                                <span className="text-[10px] font-black text-[#0077B6]">ID:</span>
+                                <input
+                                  type="text"
+                                  value={newStudentIdValue}
+                                  onChange={(e) => setNewStudentIdValue(e.target.value)}
+                                  placeholder="كود جديد..."
+                                  className="w-24 text-xs font-black px-1 py-0.5 border-b border-slate-300 dark:border-slate-600 bg-transparent outline-none dark:text-white"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleSaveStudentId(s.uid);
+                                    if (e.key === "Escape") setEditingStudentIdUid(null);
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveStudentId(s.uid)}
+                                  disabled={isSavingStudentId}
+                                  className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition"
+                                  title="حفظ الكود"
+                                >
+                                  <Check size={11} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingStudentIdUid(null)}
+                                  className="p-1 rounded-lg bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 hover:bg-slate-300 transition"
+                                  title="إلغاء"
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1 text-[10px] bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 px-2 py-0.5 rounded-full font-bold">
+                                <span>ID: {s.studentId || "عشوائي"}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingStudentIdUid(s.uid);
+                                    setNewStudentIdValue(s.studentId || "");
+                                  }}
+                                  className="text-[#0077B6] dark:text-[#00A8E8] hover:text-blue-800 dark:hover:text-cyan-300 transition p-0.5"
+                                  title="تعديل كود الطالب (ID)"
+                                >
+                                  <Edit3 size={11} />
+                                </button>
+                              </div>
+                            )}
                             <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
                               isOnline
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
@@ -1183,8 +1272,56 @@ export default function TeacherDashboard() {
                     <p className="text-base font-black text-slate-900 mt-1">{selectedStudentDetail.name}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 font-bold">معرّف الطالب (7 أرقام)</span>
-                    <p className="text-base font-black text-[#0077B6] mt-1">{selectedStudentDetail.studentId || "عشوائي"}</p>
+                    <span className="text-[10px] text-slate-400 font-bold">معرّف الطالب (ID)</span>
+                    {editingStudentIdUid === selectedStudentDetail.uid ? (
+                      <div className="flex items-center gap-1.5 mt-1 bg-white dark:bg-slate-900 border border-[#0077B6] rounded-xl px-2 py-1 shadow-sm">
+                        <input
+                          type="text"
+                          value={newStudentIdValue}
+                          onChange={(e) => setNewStudentIdValue(e.target.value)}
+                          placeholder="كود الطالب الجديد..."
+                          className="w-28 text-xs font-black px-1 py-0.5 border-b border-slate-300 dark:border-slate-600 bg-transparent outline-none dark:text-white"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveStudentId(selectedStudentDetail.uid);
+                            if (e.key === "Escape") setEditingStudentIdUid(null);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveStudentId(selectedStudentDetail.uid)}
+                          disabled={isSavingStudentId}
+                          className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition"
+                          title="حفظ الكود"
+                        >
+                          <Check size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingStudentIdUid(null)}
+                          className="p-1 rounded-lg bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 hover:bg-slate-300 transition"
+                          title="إلغاء"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-base font-black text-[#0077B6]">{selectedStudentDetail.studentId || "عشوائي"}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingStudentIdUid(selectedStudentDetail.uid);
+                            setNewStudentIdValue(selectedStudentDetail.studentId || "");
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0077B6] hover:text-[#005f92] bg-blue-50 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-blue-100 dark:border-slate-700 transition"
+                          title="تعديل كود الطالب"
+                        >
+                          <Edit3 size={11} />
+                          تعديل
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold">موبايل الطالب والولي</span>
@@ -1809,6 +1946,25 @@ export default function TeacherDashboard() {
               )}
             </div>
 
+          </section>
+        )}
+
+        {/* --- TAB: ADD QUIZ ENTRY (AI IMPORTER) --- */}
+        {activeTab === "add-quiz" && (
+          <section className="bg-white dark:bg-slate-900 border border-cyan-100 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-5 text-right">
+            <div className="rounded-3xl bg-gradient-to-l from-[#0077B6] to-[#00A8E8] p-6 text-white">
+              <h2 className="text-2xl font-black">إضافة كويز جديد (بالذكاء الاصطناعي)</h2>
+              <p className="mt-2 text-sm text-white/75">
+                يمكنك إضافة كويز لأي كورس مع إمكانية استخراج وتوليد الأسئلة والاختيارات والإجابات تلقائياً بالذكاء الاصطناعي بمجرد رفع ملف PDF أو Word أو نص مقتبس.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/teacher/add-quiz")}
+              className="w-full rounded-2xl bg-[#0077B6] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:bg-[#005f92]"
+            >
+              فتح صفحة إضافة الكويز واستخراج الأسئلة بالذكاء الاصطناعي
+            </button>
           </section>
         )}
 

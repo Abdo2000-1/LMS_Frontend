@@ -31,7 +31,8 @@ export const TEACHER_SIDEBAR_TABS = [
   { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet, hasBadge: true },
   { id: "add-course", label: "إضافة كورس جديد", icon: PlusCircle },
   { id: "add-standalone-lecture", label: "إضافة محاضرة مستقلة", icon: Video },
-  { id: "add-exam", label: "إضافة امتحان جديد", icon: HelpCircle },
+  { id: "add-quiz", label: "إضافة كويز جديد (AI)", icon: HelpCircle },
+  { id: "add-exam", label: "إضافة امتحان شامل جديد", icon: FileText },
 ];
 
 export default function DashboardLayout({ active, activeTab, onTabChange, badges = {}, children }) {

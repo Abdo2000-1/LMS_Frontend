@@ -19,6 +19,7 @@ import {
 import apiClient from "../lib/apiClient.js";
 import { uploadImageToStorage, uploadFileToStorage } from "../services/storageService.js";
 import { createCourse, updateCourse, parseLectureAudience, cleanLectureDescription, getTenantStudents } from "../services/courseService.js";
+import AiExamDocImporter from "./AiExamDocImporter.jsx";
 
 const emptyQuestion = () => ({
   id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
@@ -203,6 +204,26 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
       next[qIndex] = { ...next[qIndex], choices };
       return next;
     });
+  }
+
+  function handleQuizExtracted({ title: extractedTitle, questions: extractedQuestions }) {
+    if (extractedTitle && (!quizTitle || quizTitle === "كويز على المحاضرة")) {
+      setQuizTitle(extractedTitle);
+    }
+    if (extractedQuestions && extractedQuestions.length > 0) {
+      setQuestions(extractedQuestions.map((q, idx) => ({
+        id: `q_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 5)}`,
+        type: q.type || "mcq",
+        prompt: q.prompt || "",
+        choices: q.choices && q.choices.length >= 2 ? q.choices : ["", "", "", ""],
+        correctIndex: typeof q.correctIndex === "number" ? q.correctIndex : 0,
+        points: Number(q.points || 1),
+        modelAnswer: q.modelAnswer || "",
+        gradingRubric: q.gradingRubric || "",
+      })));
+      setHasQuiz(true);
+      setSuccess(`🎉 تم بنجاح استخراج ${extractedQuestions.length} سؤال من الملف بالذكاء الاصطناعي وإضافتها للكويز!`);
+    }
   }
 
   async function handleSubmit(e) {
@@ -735,6 +756,9 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
 
           {hasQuiz && (
             <div className="space-y-5 pt-2">
+              {/* AI Doc / Text Importer for Lecture Quiz */}
+              <AiExamDocImporter onExtracted={handleQuizExtracted} />
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input
                   value={quizTitle}
