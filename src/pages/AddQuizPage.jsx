@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, CheckCircle2, Clock, HelpCircle, Image, Plus, Trash2, Upload } from "lucide-react";
 import DashboardLayout from "../components/DashboardLayout.jsx";
-import { addQuizToCourse, deleteQuizFromCourse, getCourseById, subscribeCourses } from "../services/courseService.js";
+import { addQuizToCourse, deleteQuizFromCourse, getCourseById, subscribeCourses, buildCourseContent } from "../services/courseService.js";
 import { uploadImageToStorage } from "../services/storageService.js";
 import AiExamDocImporter from "../components/AiExamDocImporter.jsx";
 
@@ -115,10 +115,18 @@ export default function AddQuizPage() {
 
     setIsBusy(true);
     try {
+      const targetCourse = courses.find((c) => String(c.id) === String(courseId));
+      const existingContent = targetCourse ? buildCourseContent(targetCourse) : [];
+      const nextOrder = existingContent.length > 0
+        ? Math.max(...existingContent.map((i) => i.sortOrder || i.order || 0)) + 1
+        : 1;
+
       await addQuizToCourse(courseId, {
         title: title.trim(),
         minutes: Number(minutes || 15),
         questionsCount: questions.length,
+        order: nextOrder,
+        createdAt: new Date().toISOString(),
         isMandatory,
         questions: questions.map((question, index) => ({
           questionId: `q${Date.now()}_${index}`,

@@ -349,6 +349,9 @@ export default function CourseDetails() {
                 token={localStorage.getItem("lms_access_token") || ""}
                 studentId={user?.studentId || user?.uid || user?.phone || ""}
                 onEnded={completeLesson}
+                hasAccess={hasAccess}
+                isFree={Boolean(isFree || selectedUnit.isFree)}
+                isTeacher={isTeacher}
               />
             ) : (
               <div className="relative pb-[56.25%] h-0 overflow-hidden bg-black">

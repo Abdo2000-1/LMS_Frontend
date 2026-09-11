@@ -75,25 +75,35 @@ function mapLessonVideo(lesson, module, index) {
 
 // ─── Build course content list (for sorting videos/resources/quizzes) ──
 export function buildCourseContent(course = {}) {
-  const videos = (course.units || []).map((unit) => ({ ...unit, type: "video", sortOrder: Number(unit.order || 0) }));
+  const videos = (course.units || []).map((unit, idx) => ({
+    ...unit,
+    type: "video",
+    sortOrder: Number(unit.order ?? unit.sortOrder ?? idx + 1),
+  }));
   const moduleVideos = (course.modules || []).flatMap((module) =>
     (module.lessons || []).map((lesson, index) => ({
       ...mapLessonVideo(lesson, module, index),
       type: "video",
-      sortOrder: Number(lesson.sortOrder || index + 1),
+      sortOrder: Number(lesson.sortOrder ?? lesson.order ?? index + 1),
     }))
   );
-  const resources = (course.resources || []).map((resource) => ({
+  const resources = (course.resources || []).map((resource, idx) => ({
     ...resource,
     type: "resource",
-    sortOrder: Number(resource.order || 0),
+    sortOrder: Number(resource.order ?? resource.sortOrder ?? idx + 1),
   }));
-  const quizzes = (course.quizzes || []).map((quiz) => ({ ...quiz, type: "quiz", sortOrder: Number(quiz.order || 0) }));
+  const quizzes = (course.quizzes || []).map((quiz, idx) => ({
+    ...quiz,
+    type: "quiz",
+    sortOrder: Number(quiz.order ?? quiz.sortOrder ?? idx + 1),
+  }));
   return [...videos, ...moduleVideos, ...resources, ...quizzes].sort((a, b) => {
+    const orderA = a.sortOrder;
+    const orderB = b.sortOrder;
+    if (orderA !== orderB) return orderA - orderB;
     const timeA = new Date(a.createdAt || 0).getTime();
     const timeB = new Date(b.createdAt || 0).getTime();
-    if (timeA !== timeB) return timeA - timeB; // Oldest first (FIFO)
-    return (a.sortOrder || 0) - (b.sortOrder || 0); // fallback to order if same time
+    return timeA - timeB;
   });
 }
 
@@ -335,6 +345,7 @@ export async function addQuizToCourse(courseId, quizPayload) {
       minutes: Number(quizPayload.minutes || 10),
       questionsCount: Number(quizPayload.questionsCount || (quizPayload.questions || []).length),
       order: Number(quizPayload.order || 1),
+      createdAt: quizPayload.createdAt || new Date().toISOString(),
       isMandatory: Boolean(quizPayload.isMandatory),
       questions: (quizPayload.questions || []).map((q, index) => ({
         questionId: q.questionId || `question_${index + 1}`,

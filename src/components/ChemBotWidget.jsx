@@ -179,11 +179,29 @@ export default function ChemBotWidget({ courseId = null }) {
   const location = useLocation();
   const isExamRoute = location.pathname.startsWith("/exam");
 
-  if (isExamRoute) {
-    return null;
-  }
+  const [isQuizActive, setIsQuizActive] = useState(() => {
+    return typeof document !== "undefined" && (document.body.dataset.quizActive === "true" || !!window.__LMS_QUIZ_ACTIVE);
+  });
+
+  useEffect(() => {
+    const handleStateChange = () => {
+      setIsQuizActive(document.body.dataset.quizActive === "true" || !!window.__LMS_QUIZ_ACTIVE);
+    };
+    window.addEventListener("quiz-state-change", handleStateChange);
+    return () => window.removeEventListener("quiz-state-change", handleStateChange);
+  }, []);
 
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (isExamRoute || isQuizActive) {
+      setIsOpen(false);
+    }
+  }, [isExamRoute, isQuizActive]);
+
+  if (isExamRoute || isQuizActive) {
+    return null;
+  }
   const [messages, setMessages] = useState([
     {
       id: "welcome",

@@ -244,7 +244,7 @@ export default function AiExamDocImporter({ onExtracted }) {
       </div>
 
       {/* Tabs Switcher: Upload File vs Paste Text */}
-      <div className="mt-4 flex items-center gap-2 border-b border-cyan-200/80 dark:border-slate-800 pb-3">
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-cyan-200/80 dark:border-slate-800 pb-3">
         <button
           type="button"
           onClick={() => handleTabChange("file")}

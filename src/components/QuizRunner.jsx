@@ -112,6 +112,18 @@ export default function QuizRunner({ quiz, onSubmit, onExit, embedded = false })
   const [essayEvaluations, setEssayEvaluations] = useState({});
   const [evaluatingEssayIds, setEvaluatingEssayIds] = useState(new Set());
 
+  // Mark quiz active across the app so ChemBotWidget stays hidden
+  useEffect(() => {
+    document.body.dataset.quizActive = "true";
+    window.__LMS_QUIZ_ACTIVE = true;
+    window.dispatchEvent(new Event("quiz-state-change"));
+    return () => {
+      delete document.body.dataset.quizActive;
+      window.__LMS_QUIZ_ACTIVE = false;
+      window.dispatchEvent(new Event("quiz-state-change"));
+    };
+  }, []);
+
   // Set initial state based on previous attempts, without overwriting active results/reviews
   useEffect(() => {
     const draftKey = getDraftKey(courseId, quiz?.quizId);

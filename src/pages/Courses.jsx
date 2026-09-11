@@ -26,12 +26,16 @@ export default function Courses() {
   const [grades, setGrades] = useState([]);
   const [selectedGrade, setSelectedGrade] = useState(initialGradeParam);
   const [searchTerm, setSearchTerm] = useState("");
+  const [grade3Filter, setGrade3Filter] = useState("all"); // "all" | "lectures" | "fullCourses"
 
   useEffect(() => subscribeCourses(setCourses), []);
 
   useEffect(() => {
     const g = searchParams.get("grade");
-    if (g) setSelectedGrade(g);
+    if (g) {
+      setSelectedGrade(g);
+      setGrade3Filter("all");
+    }
   }, [searchParams]);
 
   const enrolledSet = useMemo(() => new Set(user?.enrolledCourses || []), [user?.enrolledCourses]);
@@ -140,8 +144,111 @@ export default function Courses() {
           />
         </div>
 
+        {/* ═══ Grade 3 Dual Selection Cards (محاضرات vs كورس كامل) ═══ */}
+        {selectedGrade === "الصف الثالث الثانوي" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg sm:text-xl font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <Sparkles className="text-[#FF6B35]" size={20} />
+                اختر نوع المحتوى المطلوب للصف الثالث الثانوي:
+              </h2>
+              {grade3Filter !== "all" && (
+                <button
+                  type="button"
+                  onClick={() => setGrade3Filter("all")}
+                  className="text-xs font-black text-[#0077B6] dark:text-[#00A8E8] hover:underline"
+                >
+                  عرض الكل (المحاضرات والكورسات)
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
+              {/* Card 1: محاضرات */}
+              <div
+                onClick={() => setGrade3Filter((prev) => (prev === "lectures" ? "all" : "lectures"))}
+                className={`group relative cursor-pointer overflow-hidden rounded-3xl border-2 transition-all duration-300 shadow-sm hover:shadow-xl ${
+                  grade3Filter === "lectures"
+                    ? "border-[#0077B6] ring-4 ring-[#0077B6]/20 bg-cyan-50/30 dark:bg-slate-900"
+                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#0077B6]/60"
+                }`}
+              >
+                <div className="relative h-44 sm:h-52 w-full overflow-hidden bg-slate-100 dark:bg-slate-800">
+                  <img
+                    src={`${import.meta.env.BASE_URL}card_lecture.png`}
+                    alt="محاضرات"
+                    className="h-full w-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/30 to-transparent" />
+                  <span className="absolute top-4 right-4 rounded-full bg-[#FF6B35] px-3.5 py-1 text-xs font-black text-white shadow-md">
+                    محاضرات منفردة
+                  </span>
+                  <div className="absolute bottom-4 right-4 left-4 text-white">
+                    <h3 className="text-2xl font-black drop-shadow">محاضرات</h3>
+                    <p className="text-xs text-white/80 font-bold mt-0.5">
+                      محاضرات الدروس المنفردة، حل التمارين، والواجبات الجزئية
+                    </p>
+                  </div>
+                </div>
+                <div className="p-4 flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-600 dark:text-slate-300">
+                    {visibleStandaloneLectures.length} محاضرة متاحة
+                  </span>
+                  <span className={`text-xs font-black px-3.5 py-1.5 rounded-xl transition ${
+                    grade3Filter === "lectures"
+                      ? "bg-[#0077B6] text-white"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:bg-[#0077B6] group-hover:text-white"
+                  }`}>
+                    {grade3Filter === "lectures" ? "تم التحديد ✓" : "تصفح المحاضرات"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 2: كورس كامل */}
+              <div
+                onClick={() => setGrade3Filter((prev) => (prev === "fullCourses" ? "all" : "fullCourses"))}
+                className={`group relative cursor-pointer overflow-hidden rounded-3xl border-2 transition-all duration-300 shadow-sm hover:shadow-xl ${
+                  grade3Filter === "fullCourses"
+                    ? "border-[#0077B6] ring-4 ring-[#0077B6]/20 bg-cyan-50/30 dark:bg-slate-900"
+                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#0077B6]/60"
+                }`}
+              >
+                <div className="relative h-44 sm:h-52 w-full overflow-hidden bg-slate-100 dark:bg-slate-800">
+                  <img
+                    src={`${import.meta.env.BASE_URL}card_course.png`}
+                    alt="كورس كامل"
+                    className="h-full w-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/30 to-transparent" />
+                  <span className="absolute top-4 right-4 rounded-full bg-[#0077B6] px-3.5 py-1 text-xs font-black text-white shadow-md">
+                    المنهج الشامل
+                  </span>
+                  <div className="absolute bottom-4 right-4 left-4 text-white">
+                    <h3 className="text-2xl font-black drop-shadow">كورس كامل</h3>
+                    <p className="text-xs text-white/80 font-bold mt-0.5">
+                      الكورسات الكاملة الشاملة لجميع أبواب ووحدات المنهج
+                    </p>
+                  </div>
+                </div>
+                <div className="p-4 flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-600 dark:text-slate-300">
+                    {fullCourses.length} كورس متاح
+                  </span>
+                  <span className={`text-xs font-black px-3.5 py-1.5 rounded-xl transition ${
+                    grade3Filter === "fullCourses"
+                      ? "bg-[#0077B6] text-white"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:bg-[#0077B6] group-hover:text-white"
+                  }`}>
+                    {grade3Filter === "fullCourses" ? "تم التحديد ✓" : "تصفح الكورسات"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ═══ SECTION 1: STANDALONE LECTURES (المحاضرات المتاحة - تظهر فقط عند اختيار صف دراسي محدد) ═══ */}
-        {selectedGrade !== "الكل" && visibleStandaloneLectures.length > 0 && (
+        {selectedGrade !== "الكل" && visibleStandaloneLectures.length > 0 && (selectedGrade !== "الصف الثالث الثانوي" || grade3Filter !== "fullCourses") && (
           <section className="space-y-6">
             <div className="flex items-center justify-between border-b border-cyan-100 dark:border-slate-800 pb-3">
               <h2 className="text-xl font-black text-[#0077B6] dark:text-[#00A8E8] flex items-center gap-2">
@@ -271,7 +378,8 @@ export default function Courses() {
         )}
 
         {/* ═══ SECTION 2: FULL COURSES (الكورسات التعليمية) ═══ */}
-        <section className="space-y-6">
+        {(selectedGrade !== "الصف الثالث الثانوي" || grade3Filter !== "lectures") && (
+          <section className="space-y-6">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
             <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <BookOpen className="text-[#0077B6]" />
@@ -363,6 +471,7 @@ export default function Courses() {
             })}
           </motion.div>
         </section>
+        )}
 
         {filteredCourses.length === 0 && (
           <div className="mt-8 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 p-12 text-center text-slate-500 dark:text-slate-400">

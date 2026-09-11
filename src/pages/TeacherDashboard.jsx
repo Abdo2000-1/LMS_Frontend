@@ -30,6 +30,8 @@ import {
   Check,
   Edit3,
   X,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -532,6 +534,91 @@ export default function TeacherDashboard() {
     if (!currentSelectedCourseObj) return;
     const refreshed = await deleteQuizFromCourse(currentSelectedCourseObj.id, quizId);
     await refreshCourseCard(refreshed);
+  }
+
+  async function moveContentItem(index, direction) {
+    if (!currentSelectedCourseObj) return;
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= currentSelectedCourseContent.length) return;
+
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const updatedList = [...currentSelectedCourseContent];
+      const [movedItem] = updatedList.splice(index, 1);
+      updatedList.splice(targetIndex, 0, movedItem);
+
+      const baseEpoch = new Date("2024-01-01T12:00:00Z").getTime();
+      const newUnits = [];
+      const newResources = [];
+      const newQuizzes = [];
+
+      updatedList.forEach((item, idx) => {
+        const newOrder = idx + 1;
+        const newCreatedAt = new Date(baseEpoch + idx * 60000).toISOString();
+
+        if (item.type === "video") {
+          newUnits.push({
+            unitId: item.unitId || item.id || `unit_${idx + 1}`,
+            title: item.title,
+            youtubeVideoId: item.youtubeVideoId || "",
+            driveFileId: item.driveFileId || "",
+            videoUrl: item.videoUrl || "",
+            isFree: Boolean(item.isFree || item.isPreview),
+            order: newOrder,
+            sortOrder: newOrder,
+            createdAt: newCreatedAt,
+          });
+        } else if (item.type === "resource") {
+          newResources.push({
+            resourceId: item.resourceId || item.id || `res_${idx + 1}`,
+            title: item.title,
+            fileUrl: item.fileUrl || "",
+            fileName: item.fileName || "",
+            fileType: item.fileType || "pdf",
+            isFree: Boolean(item.isFree),
+            order: newOrder,
+            sortOrder: newOrder,
+            createdAt: newCreatedAt,
+          });
+        } else if (item.type === "quiz") {
+          newQuizzes.push({
+            quizId: item.quizId || item.id || `quiz_${idx + 1}`,
+            title: item.title,
+            minutes: Number(item.minutes || 15),
+            questionsCount: Number(item.questionsCount || (item.questions || []).length),
+            order: newOrder,
+            sortOrder: newOrder,
+            isMandatory: Boolean(item.isMandatory),
+            questions: item.questions || [],
+            createdAt: newCreatedAt,
+          });
+        }
+      });
+
+      const updated = await updateCourse(currentSelectedCourseObj.id, {
+        title: currentSelectedCourseObj.title,
+        description: currentSelectedCourseObj.description,
+        grade: currentSelectedCourseObj.grade,
+        price: currentSelectedCourseObj.price,
+        discountPercent: currentSelectedCourseObj.discountPercent,
+        thumbnailUrl: currentSelectedCourseObj.thumbnailUrl,
+        isPublished: currentSelectedCourseObj.isPublished,
+        isStandalone: currentSelectedCourseObj.isStandalone,
+        slug: currentSelectedCourseObj.slug,
+        units: newUnits,
+        resources: newResources,
+        quizzes: newQuizzes,
+      });
+
+      await refreshCourseCard(updated);
+      setNotice("تم تغيير ترتيب المحتوى بنجاح! 🔄");
+    } catch (err) {
+      setErrorMessage(err.message || "تعذر تغيير ترتيب المحتوى.");
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   function openWhatsAppParent(parentPhone, studentName, studentId) {
@@ -1903,38 +1990,69 @@ export default function TeacherDashboard() {
                     <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                       {currentSelectedCourseContent.length === 0 ? (
                         <p className="text-[11px] text-slate-400">لا يوجد محتوى مضاف بعد.</p>
-                      ) : currentSelectedCourseContent.map((item) => (
-                        <div key={`${item.type}-${item.lessonId || item.resourceId || item.quizId}`} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2">
-                          <div className="min-w-0">
-                            <p className="text-xs font-extrabold text-slate-800 truncate">{item.title}</p>
-                            <p className="text-[10px] text-slate-400">
-                              {item.type === "video" ? "محاضرة" : item.type === "resource" ? "PDF" : "كويز"}
-                            </p>
+                      ) : currentSelectedCourseContent.map((item, index) => (
+                        <div key={`${item.type}-${item.lessonId || item.resourceId || item.quizId}`} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-[#0077B6] text-white text-[11px] font-black shrink-0">
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-xs font-extrabold text-slate-800 truncate">{item.title}</p>
+                              <p className="text-[10px] text-slate-400">
+                                {item.type === "video" ? "محاضرة فيديو" : item.type === "resource" ? "ملف PDF" : "كويز تفاعلي"}
+                              </p>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!confirm("هل تريد حذف هذا العنصر نهائياً؟")) return;
-                              setIsBusy(true);
-                              try {
-                                if (item.type === "video") {
-                                  await removeLessonItem(item.lessonId);
-                                } else if (item.type === "resource") {
-                                  await removeResourceItem(item.resourceId);
-                                } else if (item.type === "quiz") {
-                                  await removeQuizItem(item.quizId);
+                          
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* Move Up */}
+                            <button
+                              type="button"
+                              title="تحريك لأعلى"
+                              disabled={isBusy || index === 0}
+                              onClick={() => moveContentItem(index, "up")}
+                              className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200 hover:text-[#0077B6] disabled:opacity-30 disabled:pointer-events-none transition"
+                            >
+                              <ChevronUp size={15} />
+                            </button>
+                            {/* Move Down */}
+                            <button
+                              type="button"
+                              title="تحريك لأسفل"
+                              disabled={isBusy || index === currentSelectedCourseContent.length - 1}
+                              onClick={() => moveContentItem(index, "down")}
+                              className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200 hover:text-[#0077B6] disabled:opacity-30 disabled:pointer-events-none transition"
+                            >
+                              <ChevronDown size={15} />
+                            </button>
+                            {/* Delete */}
+                            <button
+                              type="button"
+                              title="حذف نهائي"
+                              disabled={isBusy}
+                              onClick={async () => {
+                                if (!confirm("هل تريد حذف هذا العنصر نهائياً؟")) return;
+                                setIsBusy(true);
+                                try {
+                                  if (item.type === "video") {
+                                    await removeLessonItem(item.lessonId);
+                                  } else if (item.type === "resource") {
+                                    await removeResourceItem(item.resourceId);
+                                  } else if (item.type === "quiz") {
+                                    await removeQuizItem(item.quizId);
+                                  }
+                                  setNotice("تم حذف العنصر بنجاح.");
+                                } catch (err) {
+                                  setErrorMessage(err.message || "تعذر حذف العنصر.");
+                                } finally {
+                                  setIsBusy(false);
                                 }
-                                setNotice("تم حذف العنصر بنجاح.");
-                              } catch (err) {
-                                setErrorMessage(err.message || "تعذر حذف العنصر.");
-                              } finally {
-                                setIsBusy(false);
-                              }
-                            }}
-                            className={`${isTeacher ? "" : "hidden "}rounded-lg p-2 text-red-600 hover:bg-red-50 transition`}
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                              }}
+                              className={`${isTeacher ? "" : "hidden "}rounded-lg p-1.5 text-red-600 hover:bg-red-50 transition`}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
