@@ -64,7 +64,8 @@ import StandaloneLectureForm from "../components/StandaloneLectureForm.jsx";
 import { KeyRound, FileEdit, Video } from "lucide-react";
 
 const tabs = [
-  { id: "courses", label: "الكورسات الحالية", icon: BookOpen },
+  { id: "courses", label: "الكورسات الكاملة", icon: BookOpen },
+  { id: "standalone-lectures", label: "المحاضرات المنفردة", icon: Video },
   { id: "access-codes", label: "أكواد التفعيل (12 رقم)", icon: KeyRound },
   { id: "essay-grading", label: "تصحيح الأسئلة المقالية", icon: FileEdit },
   { id: "students", label: "بيانات الطلاب", icon: Users },
@@ -132,6 +133,7 @@ export default function TeacherDashboard() {
   const [notice, setNotice] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [editingStandaloneLecture, setEditingStandaloneLecture] = useState(null);
 
   function copyToClipboard(text, id) {
     if (!text) return;
@@ -499,6 +501,10 @@ export default function TeacherDashboard() {
   }
 
   function startEditCourse(course) {
+    if (course.isStandalone) {
+      startEditStandaloneLecture(course);
+      return;
+    }
     setEditingCourseId(course.id);
     setCourseForm({
       title: course.title || "",
@@ -513,13 +519,66 @@ export default function TeacherDashboard() {
     setActiveTab("add-course");
   }
 
+  function startEditStandaloneLecture(lecture) {
+    setEditingStandaloneLecture(lecture);
+    setActiveTab("add-standalone-lecture");
+  }
+
+  async function removeStandaloneLecture(lectureId) {
+    if (!confirm("هل أنت متأكد من حذف هذه المحاضرة المنفردة نهائياً؟")) return;
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await deleteCourse(lectureId);
+      setNotice("تم حذف المحاضرة المنفردة بنجاح.");
+      setCourses((prev) => prev.filter((c) => c.id !== lectureId));
+    } catch (err) {
+      setErrorMessage(err.message || "تعذر حذف المحاضرة المنفردة.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function refreshCourseCard(updatedCourse) {
     setCourses((prev) => prev.map((course) => (course.id === updatedCourse.id ? updatedCourse : course)));
   }
 
-  async function removeLessonItem(lessonId) {
+  async function removeLessonItem(item) {
     if (!currentSelectedCourseObj) return;
-    await deleteLesson(lessonId);
+    const lessonId = item?.lessonId || (typeof item === "string" ? item : null);
+    let deleted = false;
+    if (lessonId) {
+      try {
+        await deleteLesson(lessonId);
+        deleted = true;
+      } catch (err) {
+        console.warn("deleteLesson failed:", err);
+      }
+    }
+    // Also remove from course.units if present
+    const targetId = item?.unitId || item?.id || lessonId;
+    const targetTitle = item?.title;
+    const existingUnits = currentSelectedCourseObj.units || [];
+    const filteredUnits = existingUnits.filter(
+      (u) => (u.unitId || u.id) !== targetId && (!targetTitle || u.title !== targetTitle)
+    );
+    if (filteredUnits.length !== existingUnits.length || !deleted) {
+      await updateCourse(currentSelectedCourseObj.id, {
+        title: currentSelectedCourseObj.title,
+        description: currentSelectedCourseObj.description,
+        grade: currentSelectedCourseObj.grade,
+        price: currentSelectedCourseObj.price,
+        discountPercent: currentSelectedCourseObj.discountPercent,
+        thumbnailUrl: currentSelectedCourseObj.thumbnailUrl,
+        isPublished: currentSelectedCourseObj.isPublished,
+        isStandalone: currentSelectedCourseObj.isStandalone,
+        slug: currentSelectedCourseObj.slug,
+        units: filteredUnits,
+        resources: currentSelectedCourseObj.resources || [],
+        quizzes: currentSelectedCourseObj.quizzes || [],
+      });
+    }
     const refreshed = await getCourseById(currentSelectedCourseObj.id, { includeUnpublished: true });
     await refreshCourseCard(refreshed);
   }
@@ -554,22 +613,35 @@ export default function TeacherDashboard() {
       const newResources = [];
       const newQuizzes = [];
 
+      // Existing units tracking so we don't accidentally turn module lessons into units
+      const existingUnits = currentSelectedCourseObj.units || [];
+      const existingUnitIds = new Set(existingUnits.map((u) => u.unitId || u.id));
+      const existingUnitTitles = new Set(existingUnits.map((u) => (u.title || "").trim().toLowerCase()));
+
       updatedList.forEach((item, idx) => {
         const newOrder = idx + 1;
         const newCreatedAt = new Date(baseEpoch + idx * 60000).toISOString();
 
         if (item.type === "video") {
-          newUnits.push({
-            unitId: item.unitId || item.id || `unit_${idx + 1}`,
-            title: item.title,
-            youtubeVideoId: item.youtubeVideoId || "",
-            driveFileId: item.driveFileId || "",
-            videoUrl: item.videoUrl || "",
-            isFree: Boolean(item.isFree || item.isPreview),
-            order: newOrder,
-            sortOrder: newOrder,
-            createdAt: newCreatedAt,
-          });
+          const isModuleLesson = Boolean(item.lessonId && item.moduleId);
+          const wasExistingUnit =
+            existingUnitIds.has(item.unitId || item.id) ||
+            existingUnitTitles.has((item.title || "").trim().toLowerCase());
+
+          // Only write to units if it was an actual unit or course has no modules
+          if (!isModuleLesson || wasExistingUnit) {
+            newUnits.push({
+              unitId: item.unitId || item.id || `unit_${idx + 1}`,
+              title: item.title,
+              youtubeVideoId: item.youtubeVideoId || "",
+              driveFileId: item.driveFileId || "",
+              videoUrl: item.videoUrl || "",
+              isFree: Boolean(item.isFree || item.isPreview),
+              order: newOrder,
+              sortOrder: newOrder,
+              createdAt: newCreatedAt,
+            });
+          }
         } else if (item.type === "resource") {
           newResources.push({
             resourceId: item.resourceId || item.id || `res_${idx + 1}`,
@@ -905,70 +977,223 @@ export default function TeacherDashboard() {
         )}
 
         {/* --- TAB 1: CURRENT COURSES LIST (GRID view) --- */}
-        {activeTab === "courses" && (
-          <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm">
-            <h2 className="text-xl font-black text-[#0077B6] mb-5">جميع الكورسات الحالية المرفوعة</h2>
-            {courses.length === 0 ? (
-              <p className="text-slate-500 text-center py-10 font-bold">لا توجد كورسات مرفوعة حتى الآن.</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {courses.map((c) => (
-                  <div key={c.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm flex flex-col justify-between">
-                    <div className="relative h-44 bg-slate-100">
-                      {c.thumbnailUrl ? (
-                        <img src={c.thumbnailUrl} alt={c.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-400">
-                          <BookOpen size={48} />
-                        </div>
-                      )}
-                      <span className="absolute top-3 left-3 bg-[#0077B6] text-white text-xs font-bold px-3 py-1 rounded-full">
-                        {c.grade}
-                      </span>
-                    </div>
-                    <div className="p-4 space-y-2">
-                      <h3 className="font-black text-lg text-slate-900 leading-tight">{c.title}</h3>
-                      <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">{c.description || "لا يوجد وصف."}</p>
-                      
-                      <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                        <span className="text-sm font-black text-[#FF6B35]">
-                          {c.price === 0 ? "مجاني" : `${c.price} ج.م`}
-                        </span>
-                        <span className="text-xs text-slate-400 font-bold">
-                          المشتركين: {c.studentsCount} طالب
+        {/* --- TAB 1: CURRENT COURSES LIST (GRID view) --- */}
+        {activeTab === "courses" && (() => {
+          const fullCourses = courses.filter((c) => !c.isStandalone);
+          return (
+            <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-xl font-black text-[#0077B6] flex items-center gap-2">
+                    <BookOpen className="text-[#0077B6]" />
+                    الكورسات الشاملة الكاملة
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-cyan-100 text-[#0077B6]">
+                      {fullCourses.length} كورس
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">كورسات المناهج التعليمية الكاملة والسنوية</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCourseId(null);
+                    setActiveTab("add-course");
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0077B6] hover:bg-[#005f92] text-white text-xs font-black shadow-md transition"
+                >
+                  <PlusCircle size={15} />
+                  إضافة كورس كامل جديد
+                </button>
+              </div>
+              {fullCourses.length === 0 ? (
+                <p className="text-slate-500 text-center py-10 font-bold">لا توجد كورسات كاملة مرفوعة حتى الآن.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {fullCourses.map((c) => (
+                    <div key={c.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm flex flex-col justify-between">
+                      <div className="relative h-44 bg-slate-100">
+                        {c.thumbnailUrl ? (
+                          <img src={c.thumbnailUrl} alt={c.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400">
+                            <BookOpen size={48} />
+                          </div>
+                        )}
+                        <span className="absolute top-3 left-3 bg-[#0077B6] text-white text-xs font-bold px-3 py-1 rounded-full">
+                          {c.grade}
                         </span>
                       </div>
-                    </div>
-                    <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="p-4 space-y-2">
+                        <h3 className="font-black text-lg text-slate-900 leading-tight">{c.title}</h3>
+                        <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">{c.description || "لا يوجد وصف."}</p>
+                        
+                        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                          <span className="text-sm font-black text-[#FF6B35]">
+                            {c.price === 0 ? "مجاني" : `${c.price} ج.م`}
+                          </span>
+                          <span className="text-xs text-slate-400 font-bold">
+                            المشتركين: {c.studentsCount} طالب
+                          </span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditCourse(c)}
+                            className="text-[#0077B6] hover:text-[#005f92] px-2 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition"
+                          >
+                            تعديل الكورس
+                          </button>
+                          <span className="text-[11px] text-slate-400 font-bold">
+                            تحديث: {formatDate(c.updatedAt)}
+                          </span>
+                        </div>
                         <button
                           type="button"
-                          onClick={() => startEditCourse(c)}
-                          className="text-[#0077B6] hover:text-[#005f92] px-2 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition"
+                          onClick={async () => {
+                            if (confirm("هل تريد حذف هذا الكورس نهائياً؟")) {
+                              await deleteCourse(c.id);
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
                         >
-                          تعديل الكورس
+                          <Trash2 size={16} />
                         </button>
-                        <span className="text-[11px] text-slate-400 font-bold">
-                          تحديث: {formatDate(c.updatedAt)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* --- TAB: STANDALONE LECTURES (GRID view) --- */}
+        {activeTab === "standalone-lectures" && (() => {
+          const standaloneLectures = courses.filter((c) => c.isStandalone);
+          return (
+            <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-xl font-black text-[#0077B6] flex items-center gap-2">
+                    <Video className="text-[#FF6B35]" />
+                    المحاضرات المنفردة المستقلة
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-orange-100 text-[#FF6B35]">
+                      {standaloneLectures.length} محاضرة
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">محاضرات منفصلة مميزة تباع أو تشاهد فردياً مع كويز وملف خاص</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingStandaloneLecture(null);
+                    setActiveTab("add-standalone-lecture");
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FF6B35] hover:bg-[#e05621] text-white text-xs font-black shadow-md transition"
+                >
+                  <PlusCircle size={15} />
+                  إضافة محاضرة مستقلة جديدة
+                </button>
+              </div>
+              {standaloneLectures.length === 0 ? (
+                <div className="text-center py-12 space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-orange-100 text-[#FF6B35] flex items-center justify-center mx-auto">
+                    <Video size={28} />
+                  </div>
+                  <p className="text-slate-600 font-extrabold text-sm">لا توجد محاضرات منفردة مرفوعة حتى الآن.</p>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                    يمكنك رفع محاضرات منفصلة الآن (فيديو + كويز + PDF + تحديد السنتر والصف) لتظهر في قسم المحاضرات المنفردة للطلاب.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStandaloneLecture(null);
+                      setActiveTab("add-standalone-lecture");
+                    }}
+                    className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0077B6] text-white text-xs font-black shadow transition"
+                  >
+                    <PlusCircle size={15} />
+                    إضافة أول محاضرة مستقلة
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {standaloneLectures.map((lec) => (
+                    <div key={lec.id} className="rounded-2xl border border-orange-100 bg-white overflow-hidden shadow-sm flex flex-col justify-between hover:shadow-md transition">
+                      <div className="relative h-44 bg-slate-100">
+                        {lec.thumbnailUrl ? (
+                          <img src={lec.thumbnailUrl} alt={lec.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400">
+                            <Video size={48} />
+                          </div>
+                        )}
+                        <span className="absolute top-3 right-3 bg-[#FF6B35] text-white text-xs font-bold px-3 py-1 rounded-full shadow">
+                          محاضرة منفردة
+                        </span>
+                        <span className="absolute top-3 left-3 bg-[#0077B6] text-white text-xs font-bold px-3 py-1 rounded-full shadow">
+                          {lec.grade}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (confirm("هل تريد حذف هذا الكورس نهائياً؟")) {
-                            await deleteCourse(c.id);
-                          }
-                        }}
-                        className="text-red-600 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="p-4 space-y-2">
+                        <h3 className="font-black text-lg text-slate-900 leading-tight">{lec.title}</h3>
+                        <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">{lec.description || "محاضرة منفصلة."}</p>
+                        
+                        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                          <span className="text-sm font-black text-[#FF6B35]">
+                            {lec.price === 0 ? "مجانية" : `${lec.price} ج.م`}
+                          </span>
+                          <span className="text-xs text-slate-400 font-bold">
+                            المشتركين: {lec.studentsCount || 0} طالب
+                          </span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditStandaloneLecture(lec)}
+                            className="text-[#0077B6] hover:text-[#005f92] px-2 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition"
+                          >
+                            تعديل المحاضرة
+                          </button>
+                          <span className="text-[11px] text-slate-400 font-bold">
+                            تحديث: {formatDate(lec.updatedAt)}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeStandaloneLecture(lec.id)}
+                          className="text-red-600 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
+                          title="حذف المحاضرة المنفردة"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* --- TAB: ADD / EDIT STANDALONE LECTURE --- */}
+        {activeTab === "add-standalone-lecture" && (
+          <StandaloneLectureForm
+            initialLecture={editingStandaloneLecture}
+            onSaved={() => {
+              setEditingStandaloneLecture(null);
+              setActiveTab("standalone-lectures");
+              setNotice("✓ تم حفظ ونشر المحاضرة المستقلة بنجاح!");
+            }}
+            onCancel={() => {
+              setEditingStandaloneLecture(null);
+              setActiveTab("standalone-lectures");
+            }}
+          />
         )}
 
         {/* --- TAB 2: STUDENTS DATA PANEL (Governorates & Search list + Block screen) --- */}
@@ -2035,7 +2260,7 @@ export default function TeacherDashboard() {
                                 setIsBusy(true);
                                 try {
                                   if (item.type === "video") {
-                                    await removeLessonItem(item.lessonId);
+                                    await removeLessonItem(item);
                                   } else if (item.type === "resource") {
                                     await removeResourceItem(item.resourceId);
                                   } else if (item.type === "quiz") {

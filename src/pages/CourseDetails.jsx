@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Component, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
   Users,
   Star,
   Trash2,
+  AlertCircle,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import {
@@ -24,16 +25,68 @@ import {
   deleteQuizFromCourse,
   deleteLesson,
   deleteResourceFromCourse,
+  updateCourse,
 } from "../services/courseService.js";
 import AppHeader from "../components/AppHeader.jsx";
 import Footer from "../components/Footer.jsx";
 import QuizRunner from "../components/QuizRunner.jsx";
 import StudentVideoPlayer from "../components/StudentVideoPlayer.jsx";
 
+class QuizErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Quiz Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 max-w-xl mx-auto my-12 bg-white dark:bg-slate-900 rounded-3xl border border-red-200 dark:border-red-900/50 text-center space-y-4 shadow-xl">
+          <div className="w-16 h-16 rounded-2xl bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center mx-auto">
+            <AlertCircle size={32} />
+          </div>
+          <h3 className="text-xl font-black text-slate-900 dark:text-white">تعذر فتح الكويز</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-bold leading-relaxed">
+            {this.state.error?.message || "حدث خطأ غير متوقع أثناء تحميل بيانات الكويز. يمكنك إعادة المحاولة أو العودة للمنهج."}
+          </p>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="px-6 py-2.5 rounded-xl bg-[#0077B6] hover:bg-[#005f92] text-white font-black text-xs transition"
+            >
+              إعادة المحاولة
+            </button>
+            {this.props.onExit && (
+              <button
+                type="button"
+                onClick={this.props.onExit}
+                className="px-6 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-black text-xs transition"
+              >
+                العودة للكورس
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function mandatoryQuizLockReason(item, index, contentItems, quizResults = {}) {
+  const safeResults = quizResults || {};
   for (let i = 0; i < index; i += 1) {
     const previous = contentItems[i];
-    if (previous?.type === "quiz" && previous.isMandatory && !quizResults[previous.quizId]) {
+    if (previous?.type === "quiz" && previous.isMandatory && !safeResults[previous.quizId]) {
       return "يجب اجتياز الكويز أولًا لفتح المحتوى التالي";
     }
   }
@@ -172,11 +225,31 @@ export default function CourseDetails() {
     
     try {
       if (item.type === "quiz") {
-        await deleteQuizFromCourse(courseId, item.quizId);
+        await deleteQuizFromCourse(courseId, item.quizId || item.id);
       } else if (item.type === "resource") {
-        await deleteResourceFromCourse(courseId, item.resourceId);
+        await deleteResourceFromCourse(courseId, item.resourceId || item.id);
       } else if (item.type === "video") {
-        await deleteLesson(item.lessonId);
+        let deleted = false;
+        if (item.lessonId) {
+          try {
+            await deleteLesson(item.lessonId);
+            deleted = true;
+          } catch (err) {
+            console.warn("deleteLesson failed:", err);
+          }
+        }
+        // Also remove from course units if present
+        const currentUnits = course.units || [];
+        const targetId = item.unitId || item.id || item.lessonId;
+        const newUnits = currentUnits.filter(
+          (u) => (u.unitId || u.id) !== targetId && u.title !== item.title
+        );
+        if (newUnits.length !== currentUnits.length || !deleted) {
+          await updateCourse(courseId, {
+            ...course,
+            units: newUnits,
+          });
+        }
       }
       
       const refreshed = await getCourseById(courseId, { includeUnpublished: isTeacher });
@@ -210,22 +283,24 @@ export default function CourseDetails() {
       <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-['Cairo',sans-serif] transition-colors duration-500">
         <AppHeader active="/courses" />
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-          <QuizRunner
-            key={`quiz-${selectedContent.quizId || selectedContentIndex}`}
-            quiz={selectedContent}
-            embedded={true}
-            onExit={closeQuizRunner}
-            onSubmit={async (answers, timeSpentSeconds) => {
-              const result = await submitQuizAttempt({
-                uid: user.uid,
-                courseId,
-                quiz: { ...selectedContent, answers },
-                timeSpentSeconds,
-              });
-              await refreshProfile();
-              return result;
-            }}
-          />
+          <QuizErrorBoundary onExit={closeQuizRunner}>
+            <QuizRunner
+              key={`quiz-${selectedContent.quizId || selectedContentIndex}`}
+              quiz={selectedContent}
+              embedded={true}
+              onExit={closeQuizRunner}
+              onSubmit={async (answers, timeSpentSeconds) => {
+                const result = await submitQuizAttempt({
+                  uid: user?.uid || user?.id || user?.studentId || "",
+                  courseId,
+                  quiz: { ...selectedContent, answers },
+                  timeSpentSeconds,
+                });
+                await refreshProfile?.();
+                return result;
+              }}
+            />
+          </QuizErrorBoundary>
         </div>
       </div>
     );

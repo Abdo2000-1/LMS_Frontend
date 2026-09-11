@@ -58,10 +58,19 @@ export default function TakeExamPage() {
   const timerRef = useRef(null);
   const leaveCountRef = useRef(0);
 
-  // Load exam on mount
+  // Load exam on mount or when examId changes
   useEffect(() => {
     let mounted = true;
     setLoading(true);
+    setExamState("intro");
+    setResult(null);
+    setShuffledList([]);
+    setAnswers({});
+    setFlagged(new Set());
+    setCurrentIndex(0);
+    setError("");
+    leaveCountRef.current = 0;
+
     getExamById(examId)
       .then((data) => {
         if (!mounted) return;
@@ -110,12 +119,16 @@ export default function TakeExamPage() {
   }, [questions]);
 
   // Retake policy and prior attempt determination
+  const isTeacherOrAdmin = ["teacher", "admin", "developer"].includes(String(user?.role || "").toLowerCase());
+
   const isRetakeForbidden = useMemo(() => {
+    if (isTeacherOrAdmin) return false;
     if (!exam) return false;
     return exam.allowRetake === false || exam.id === "13629ef7-7c19-4c55-bb34-52a759780c66";
-  }, [exam]);
+  }, [exam, isTeacherOrAdmin]);
 
   const priorAttempt = useMemo(() => {
+    if (isTeacherOrAdmin) return null; // Teachers can always test/re-enter freely
     if (!exam) return null;
     if (exam.lastAttempt) return exam.lastAttempt;
     const fromUser = user?.quizResults?.[exam.courseId]?.[exam.id] || user?.quizResults?.[exam.id];
@@ -125,9 +138,9 @@ export default function TakeExamPage() {
       if (saved) return JSON.parse(saved);
     } catch {}
     return null;
-  }, [exam, user]);
+  }, [exam, user, isTeacherOrAdmin]);
 
-  const hasCompletedAttempt = Boolean(priorAttempt || (isRetakeForbidden && exam?.hasAttempted));
+  const hasCompletedAttempt = Boolean(!isTeacherOrAdmin && (priorAttempt || (isRetakeForbidden && exam?.hasAttempted)));
 
   // Refs for access inside native event handlers
   const answersRef = useRef(answers);

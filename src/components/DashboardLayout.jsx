@@ -23,7 +23,8 @@ import AppHeader from "./AppHeader.jsx";
 import Footer from "./Footer.jsx";
 
 export const TEACHER_SIDEBAR_TABS = [
-  { id: "courses", label: "الكورسات الحالية", icon: BookOpen },
+  { id: "courses", label: "الكورسات الكاملة", icon: BookOpen },
+  { id: "standalone-lectures", label: "المحاضرات المنفردة", icon: Video },
   { id: "access-codes", label: "أكواد التفعيل (12 رقم)", icon: KeyRound },
   { id: "essay-grading", label: "تصحيح الأسئلة المقالية", icon: FileEdit },
   { id: "students", label: "بيانات الطلاب", icon: Users },

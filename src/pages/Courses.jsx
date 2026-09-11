@@ -190,14 +190,14 @@ export default function Courses() {
                     </p>
                   </div>
                 </div>
-                <div className="p-4 flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-600 dark:text-slate-300">
+                <div className="px-4 py-3 flex items-center justify-between bg-slate-50/60 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800/80">
+                  <span className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400">
                     {visibleStandaloneLectures.length} محاضرة متاحة
                   </span>
-                  <span className={`text-xs font-black px-3.5 py-1.5 rounded-xl transition ${
+                  <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full shadow-sm transition-all duration-200 ${
                     grade3Filter === "lectures"
-                      ? "bg-[#0077B6] text-white"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:bg-[#0077B6] group-hover:text-white"
+                      ? "bg-[#0077B6] text-white shadow-blue-500/25 ring-2 ring-[#0077B6]/30"
+                      : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 group-hover:bg-[#0077B6] group-hover:text-white group-hover:border-[#0077B6]"
                   }`}>
                     {grade3Filter === "lectures" ? "تم التحديد ✓" : "تصفح المحاضرات"}
                   </span>
@@ -230,14 +230,14 @@ export default function Courses() {
                     </p>
                   </div>
                 </div>
-                <div className="p-4 flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-600 dark:text-slate-300">
+                <div className="px-4 py-3 flex items-center justify-between bg-slate-50/60 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800/80">
+                  <span className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400">
                     {fullCourses.length} كورس متاح
                   </span>
-                  <span className={`text-xs font-black px-3.5 py-1.5 rounded-xl transition ${
+                  <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full shadow-sm transition-all duration-200 ${
                     grade3Filter === "fullCourses"
-                      ? "bg-[#0077B6] text-white"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:bg-[#0077B6] group-hover:text-white"
+                      ? "bg-[#0077B6] text-white shadow-blue-500/25 ring-2 ring-[#0077B6]/30"
+                      : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 group-hover:bg-[#0077B6] group-hover:text-white group-hover:border-[#0077B6]"
                   }`}>
                     {grade3Filter === "fullCourses" ? "تم التحديد ✓" : "تصفح الكورسات"}
                   </span>

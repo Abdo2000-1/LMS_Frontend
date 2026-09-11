@@ -75,11 +75,9 @@ function mapLessonVideo(lesson, module, index) {
 
 // ─── Build course content list (for sorting videos/resources/quizzes) ──
 export function buildCourseContent(course = {}) {
-  const videos = (course.units || []).map((unit, idx) => ({
-    ...unit,
-    type: "video",
-    sortOrder: Number(unit.order ?? unit.sortOrder ?? idx + 1),
-  }));
+  const seenIds = new Set();
+  const seenTitles = new Set();
+
   const moduleVideos = (course.modules || []).flatMap((module) =>
     (module.lessons || []).map((lesson, index) => ({
       ...mapLessonVideo(lesson, module, index),
@@ -87,6 +85,30 @@ export function buildCourseContent(course = {}) {
       sortOrder: Number(lesson.sortOrder ?? lesson.order ?? index + 1),
     }))
   );
+
+  moduleVideos.forEach((v) => {
+    if (v.lessonId) seenIds.add(v.lessonId);
+    if (v.unitId) seenIds.add(v.unitId);
+    if (v.title) seenTitles.add(v.title.trim().toLowerCase());
+  });
+
+  // Filter out any unit that is already present as a module lesson or duplicate
+  const videos = (course.units || [])
+    .filter((unit) => {
+      const uId = unit.unitId || unit.id;
+      const normalizedTitle = (unit.title || "").trim().toLowerCase();
+      if (uId && seenIds.has(uId)) return false;
+      if (normalizedTitle && seenTitles.has(normalizedTitle)) return false;
+      if (uId) seenIds.add(uId);
+      if (normalizedTitle) seenTitles.add(normalizedTitle);
+      return true;
+    })
+    .map((unit, idx) => ({
+      ...unit,
+      type: "video",
+      sortOrder: Number(unit.order ?? unit.sortOrder ?? idx + 1),
+    }));
+
   const resources = (course.resources || []).map((resource, idx) => ({
     ...resource,
     type: "resource",
