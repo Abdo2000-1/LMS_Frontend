@@ -199,9 +199,6 @@ export default function ChemBotWidget({ courseId = null }) {
     }
   }, [isExamRoute, isQuizActive]);
 
-  if (isExamRoute || isQuizActive) {
-    return null;
-  }
   const [messages, setMessages] = useState([
     {
       id: "welcome",
@@ -294,6 +291,10 @@ export default function ChemBotWidget({ courseId = null }) {
       },
     ]);
   };
+
+  if (isExamRoute || isQuizActive) {
+    return null;
+  }
 
   return (
     <div className="fixed bottom-6 left-6 z-50 font-['Cairo',_sans-serif]" dir="rtl">

@@ -1,3 +1,4 @@
+import React, { Component } from "react";
 import { HashRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
@@ -21,8 +22,53 @@ import TakeExamPage from "./pages/TakeExamPage.jsx";
 import SecurityGuard from "./components/SecurityGuard.jsx";
 import ChemBotWidget from "./components/ChemBotWidget.jsx";
 
+class RootErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("RootErrorBoundary caught:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div dir="rtl" className="min-h-screen flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950 font-['Cairo',sans-serif]">
+          <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 text-center space-y-4 shadow-xl">
+            <div className="w-16 h-16 rounded-full bg-cyan-100 dark:bg-cyan-950 text-[#0077B6] flex items-center justify-center mx-auto text-2xl font-black">
+              ⚛️
+            </div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-white">منصة الدكتور مينا موريد</h2>
+            <p className="text-xs text-slate-500 font-bold leading-relaxed">
+              حدث تنبيه غير متوقع أثناء الانتقال. اضغط بالأسفل للعودة للرئيسية ومتابعة المذاكرة بسلاسة.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.href = "#/";
+              }}
+              className="px-6 py-2.5 rounded-xl bg-[#0077B6] hover:bg-[#005f92] text-white font-black text-xs transition"
+            >
+              العودة للرئيسية
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
+    <RootErrorBoundary>
     <ThemeProvider>
       <ToastProvider>
         <BrandingProvider>
@@ -121,5 +167,6 @@ export default function App() {
         </BrandingProvider>
       </ToastProvider>
     </ThemeProvider>
+    </RootErrorBoundary>
   );
 }
