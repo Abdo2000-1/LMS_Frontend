@@ -646,6 +646,15 @@ export async function updateStudentId(uid, newStudentId) {
   }
 }
 
+export async function resetStudentPassword(uid, newPassword) {
+  try {
+    const { data } = await apiClient.patch(`/api/users/${uid}/reset-password`, { newPassword }, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
 export async function submitExamAttempt({ examId, answers, timeSpentSeconds = 0 }) {
   try {
     const { data } = await apiClient.post(`/api/exams/${examId}/attempt`, {

@@ -53,6 +53,7 @@ import {
   subscribeQuizAttempts,
   unblockStudent,
   updateStudentId,
+  resetStudentPassword,
   addLessonToModule
 } from "../services/courseService.js";
 import { approvePaymentRequest, subscribePaymentRequests, subscribePayments } from "../services/paymentService.js";
@@ -163,26 +164,24 @@ export default function TeacherDashboard() {
       setError("كلمة المرور يجب أن تكون 4 أحرف على الأقل.");
       return;
     }
+    const studentUid = resetPwdStudent?.uid || resetPwdStudent?.id;
+    if (!studentUid) {
+      setError("تعذر تحديد معرف الطالب.");
+      return;
+    }
     setIsResettingPwd(true);
     setError("");
     setNotice("");
     try {
-      const authToken = user?.token || localStorage.getItem("authToken");
-      const res = await apiClient.patch(
-        `/api/users/${resetPwdStudent.uid}/reset-password`,
-        { newPassword: pwd },
-        { headers: { Authorization: `Bearer ${authToken}` }, skipGlobalErrorToast: true }
-      );
-      setNotice(res.data?.message || "تم تغيير كلمة مرور الطالب بنجاح ✅");
-      setResetPwdStudent(null);
-      setResetPwdValue("");
+      const res = await resetStudentPassword(studentUid, pwd);
+      setNotice(res?.message || "تم تغيير كلمة مرور الطالب بنجاح ✅");
+      setTimeout(() => {
+        setResetPwdStudent(null);
+        setResetPwdValue("");
+        setNotice("");
+      }, 1500);
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        "فشل تغيير كلمة المرور.";
-      setError(msg);
+      setError(err?.message || "فشل تغيير كلمة المرور.");
     } finally {
       setIsResettingPwd(false);
     }
@@ -1581,7 +1580,7 @@ export default function TeacherDashboard() {
                           <button
                             type="button"
                             onClick={() => {
-                              setResetPwdStudent({ uid: s.uid, name: s.name });
+                              setResetPwdStudent({ uid: s.uid || s.id || s.Uid, name: s.name || s.fullName || "" });
                               setResetPwdValue("");
                               setError("");
                               setNotice("");
