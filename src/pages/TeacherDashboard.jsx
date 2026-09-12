@@ -152,6 +152,42 @@ export default function TeacherDashboard() {
   const [newStudentIdValue, setNewStudentIdValue] = useState("");
   const [isSavingStudentId, setIsSavingStudentId] = useState(false);
 
+  // ─── Reset Password State & Handler ─────────────────────────────
+  const [resetPwdStudent, setResetPwdStudent] = useState(null); // { uid, name }
+  const [resetPwdValue, setResetPwdValue] = useState("");
+  const [isResettingPwd, setIsResettingPwd] = useState(false);
+
+  async function handleResetStudentPassword() {
+    const pwd = resetPwdValue.trim();
+    if (!pwd || pwd.length < 4) {
+      setError("كلمة المرور يجب أن تكون 4 أحرف على الأقل.");
+      return;
+    }
+    setIsResettingPwd(true);
+    setError("");
+    setNotice("");
+    try {
+      const authToken = user?.token || localStorage.getItem("authToken");
+      const res = await apiClient.patch(
+        `/api/users/${resetPwdStudent.uid}/reset-password`,
+        { newPassword: pwd },
+        { headers: { Authorization: `Bearer ${authToken}` }, skipGlobalErrorToast: true }
+      );
+      setNotice(res.data?.message || "تم تغيير كلمة مرور الطالب بنجاح ✅");
+      setResetPwdStudent(null);
+      setResetPwdValue("");
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        "فشل تغيير كلمة المرور.";
+      setError(msg);
+    } finally {
+      setIsResettingPwd(false);
+    }
+  }
+
   async function handleSaveStudentId(studentUid) {
     const trimmed = String(newStudentIdValue || "").trim();
     if (!trimmed) {
@@ -1542,6 +1578,19 @@ export default function TeacherDashboard() {
                           >
                             تعديل الحظر
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResetPwdStudent({ uid: s.uid, name: s.name });
+                              setResetPwdValue("");
+                              setError("");
+                              setNotice("");
+                            }}
+                            className="text-xs bg-orange-500/10 text-orange-600 font-extrabold px-3 py-1.5 rounded-xl hover:bg-orange-500/20 transition flex items-center gap-1"
+                            title="إعادة تعيين كلمة مرور الطالب"
+                          >
+                            🔑 تغيير كلمة المرور
+                          </button>
                         </div>
                       </div>
                     );
@@ -2499,6 +2548,71 @@ export default function TeacherDashboard() {
         )}
 
       </div>
+
+      {/* ─── Reset Password Modal ─────────────────────────── */}
+      {resetPwdStudent && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" dir="rtl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-7 w-[min(92vw,420px)] space-y-5 border border-orange-100 dark:border-orange-900/40">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-orange-600 flex items-center gap-2">
+                🔑 إعادة تعيين كلمة المرور
+              </h3>
+              <button
+                type="button"
+                onClick={() => { setResetPwdStudent(null); setResetPwdValue(""); setError(""); }}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-300 font-bold">
+              الطالب: <span className="text-orange-600">{resetPwdStudent.name}</span>
+            </p>
+            <div className="space-y-2">
+              <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                كلمة المرور الجديدة (4 أحرف على الأقل)
+              </label>
+              <input
+                type="password"
+                value={resetPwdValue}
+                onChange={(e) => setResetPwdValue(e.target.value)}
+                placeholder="أدخل كلمة المرور الجديدة..."
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 px-4 py-3 text-sm font-bold outline-none focus:border-orange-400 dark:text-white transition"
+                onKeyDown={(e) => { if (e.key === "Enter") handleResetStudentPassword(); }}
+                autoFocus
+              />
+            </div>
+            {error && (
+              <p className="text-xs text-red-600 font-bold bg-red-50 dark:bg-red-950/40 rounded-xl px-3 py-2 border border-red-200 dark:border-red-800">
+                ⚠️ {error}
+              </p>
+            )}
+            {notice && (
+              <p className="text-xs text-emerald-700 font-bold bg-emerald-50 dark:bg-emerald-950/40 rounded-xl px-3 py-2 border border-emerald-200 dark:border-emerald-800">
+                ✅ {notice}
+              </p>
+            )}
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleResetStudentPassword}
+                disabled={isResettingPwd}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-extrabold py-2.5 rounded-xl transition shadow-sm disabled:opacity-60"
+              >
+                {isResettingPwd ? "جاري التغيير..." : "تحديث كلمة المرور"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setResetPwdStudent(null); setResetPwdValue(""); setError(""); setNotice(""); }}
+                className="px-5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-2.5 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </DashboardLayout>
   );
 }
