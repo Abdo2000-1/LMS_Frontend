@@ -113,6 +113,9 @@ export default function TeacherDashboard() {
   }, [urlTab]);
 
   const handleTabChange = (tabId) => {
+    if (tabId === "add-standalone-lecture") {
+      setEditingStandaloneLecture(null);
+    }
     setActiveTab(tabId);
     setSearchParams({ tab: tabId });
   };
@@ -535,6 +538,46 @@ export default function TeacherDashboard() {
       setCourses((prev) => prev.filter((c) => c.id !== lectureId));
     } catch (err) {
       setErrorMessage(err.message || "تعذر حذف المحاضرة المنفردة.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function toggleCourseType(course) {
+    const nextStandalone = !course.isStandalone;
+    const confirmMsg = nextStandalone
+      ? `هل تريد تحويل "${course.title}" إلى محاضرة منفردة مستقلة؟ ستنتقل فوراً إلى قسم المحاضرات المنفردة وتظهر للطلاب كمحاضرة.`
+      : `هل تريد تحويل "${course.title}" إلى كورس كامل شامل؟ سينتقل فوراً إلى قسم الكورسات الكاملة.`;
+    if (!confirm(confirmMsg)) return;
+
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await updateCourse(course.id, {
+        title: course.title,
+        description: course.description,
+        grade: course.grade,
+        price: course.price,
+        discountPercent: course.discountPercent,
+        thumbnailUrl: course.thumbnailUrl,
+        isPublished: course.isPublished,
+        isStandalone: nextStandalone,
+        slug: course.slug,
+        units: course.units || [],
+        resources: course.resources || [],
+        quizzes: course.quizzes || [],
+      });
+      setCourses((prev) =>
+        prev.map((c) => (c.id === course.id ? { ...c, isStandalone: nextStandalone } : c))
+      );
+      setNotice(
+        nextStandalone
+          ? `✓ تم تحويل "${course.title}" إلى محاضرة منفردة مستقلة بنجاح!`
+          : `✓ تم تحويل "${course.title}" إلى كورس شامل كامل بنجاح!`
+      );
+    } catch (err) {
+      setErrorMessage(err.message || "تعذر تغيير تصنيف المحتوى.");
     } finally {
       setIsBusy(false);
     }
@@ -1036,14 +1079,23 @@ export default function TeacherDashboard() {
                           </span>
                         </div>
                       </div>
-                      <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
                             onClick={() => startEditCourse(c)}
-                            className="text-[#0077B6] hover:text-[#005f92] px-2 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition"
+                            className="text-[#0077B6] hover:text-[#005f92] px-2.5 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition border border-cyan-200"
                           >
                             تعديل الكورس
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleCourseType(c)}
+                            className="text-[#FF6B35] hover:text-[#e05621] px-2.5 py-1 rounded-lg hover:bg-orange-50 text-[11px] font-extrabold transition border border-orange-200 flex items-center gap-1"
+                            title="تحويل هذا المحتوى ليصبح محاضرة منفردة مستقلة"
+                          >
+                            <Video size={13} />
+                            تحويل لمحاضرة منفردة
                           </button>
                           <span className="text-[11px] text-slate-400 font-bold">
                             تحديث: {formatDate(c.updatedAt)}
@@ -1150,14 +1202,23 @@ export default function TeacherDashboard() {
                           </span>
                         </div>
                       </div>
-                      <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
                             onClick={() => startEditStandaloneLecture(lec)}
-                            className="text-[#0077B6] hover:text-[#005f92] px-2 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition"
+                            className="text-[#FF6B35] hover:text-[#e05621] px-2.5 py-1 rounded-lg hover:bg-orange-50 text-[11px] font-extrabold transition border border-orange-200"
                           >
                             تعديل المحاضرة
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleCourseType(lec)}
+                            className="text-[#0077B6] hover:text-[#005f92] px-2.5 py-1 rounded-lg hover:bg-cyan-50 text-[11px] font-extrabold transition border border-cyan-200 flex items-center gap-1"
+                            title="تحويل هذه المحاضرة لتصبح كورس كامل"
+                          >
+                            <BookOpen size={13} />
+                            تحويل لكورس كامل
                           </button>
                           <span className="text-[11px] text-slate-400 font-bold">
                             تحديث: {formatDate(lec.updatedAt)}
@@ -1183,6 +1244,7 @@ export default function TeacherDashboard() {
         {/* --- TAB: ADD / EDIT STANDALONE LECTURE --- */}
         {activeTab === "add-standalone-lecture" && (
           <StandaloneLectureForm
+            key={editingStandaloneLecture?.id || "new-standalone"}
             initialLecture={editingStandaloneLecture}
             onSaved={() => {
               setEditingStandaloneLecture(null);
@@ -1812,17 +1874,6 @@ export default function TeacherDashboard() {
               )}
             </div>
           </section>
-        )}
-
-        {/* --- TAB 5.1: DEDICATED STANDALONE LECTURE CREATOR --- */}
-        {activeTab === "add-standalone-lecture" && (
-          <StandaloneLectureForm
-            onSaved={() => {
-              subscribeCourses(setCourses);
-              setActiveTab("courses");
-            }}
-            onCancel={() => setActiveTab("courses")}
-          />
         )}
 
         {/* --- TAB 5.2: ADD COURSE FORM (Sequential FIFO builder) --- */}

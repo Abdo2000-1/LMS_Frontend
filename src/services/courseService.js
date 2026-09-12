@@ -141,6 +141,12 @@ function extractErrorMessage(error) {
 
 // ─── Map backend CourseResponse → frontend course shape ──────────
 function mapCourse(course) {
+  const isStandalone = Boolean(
+    course.isStandalone ??
+    course.IsStandalone ??
+    (course.description && course.description.includes("TARGET_AUDIENCE"))
+  );
+
   return {
     id: course.id || course.idText || "",
     teacherId: course.teacherId || "",
@@ -152,6 +158,7 @@ function mapCourse(course) {
     discountPercent: Number(course.discountPercent || 0),
     thumbnailUrl: course.thumbnailUrl || "",
     isPublished: course.isPublished !== false,
+    isStandalone,
     units: Array.isArray(course.units) ? course.units : [],
     resources: Array.isArray(course.resources) ? course.resources : [],
     quizzes: Array.isArray(course.quizzes) ? course.quizzes : [],
@@ -186,6 +193,7 @@ export async function createCourse(input) {
       discountPercent: Number(payload.discountPercent || 0),
       thumbnailUrl: String(payload.thumbnailUrl || "").trim(),
       isPublished: payload.isPublished !== false,
+      isStandalone: Boolean(payload.isStandalone),
       units: payload.units || [],
       resources: payload.resources || [],
       quizzes: payload.quizzes || [],
@@ -207,6 +215,7 @@ export async function updateCourse(courseId, input) {
       discountPercent: Number(payload.discountPercent || 0),
       thumbnailUrl: String(payload.thumbnailUrl || "").trim(),
       isPublished: payload.isPublished !== false,
+      isStandalone: Boolean(payload.isStandalone),
       slug: payload.slug || "",
       units: payload.units || [],
       resources: payload.resources || [],

@@ -50,16 +50,34 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
   const [thumbnailUrl, setThumbnailUrl] = useState(initialLecture?.thumbnailUrl || "");
 
   // Video
-  const [videoTitle, setVideoTitle] = useState(initialLecture?.units?.[0]?.title || initialLecture?.modules?.[0]?.lessons?.[0]?.title || "");
-  const [videoUrl, setVideoUrl] = useState(initialLecture?.units?.[0]?.youtubeVideoId || initialLecture?.modules?.[0]?.lessons?.[0]?.videoUrl || "");
-  const [videoInputMode, setVideoInputMode] = useState("upload");
+  const [videoTitle, setVideoTitle] = useState(
+    initialLecture?.units?.[0]?.title ||
+    initialLecture?.modules?.[0]?.lessons?.[0]?.title ||
+    ""
+  );
+  const [videoUrl, setVideoUrl] = useState(
+    initialLecture?.units?.[0]?.youtubeVideoId ||
+    initialLecture?.units?.[0]?.videoUrl ||
+    initialLecture?.modules?.[0]?.lessons?.[0]?.videoUrl ||
+    initialLecture?.modules?.[0]?.lessons?.[0]?.youtubeVideoId ||
+    ""
+  );
+  const [videoInputMode, setVideoInputMode] = useState(
+    (initialLecture?.units?.[0]?.youtubeVideoId ||
+     initialLecture?.units?.[0]?.videoUrl ||
+     initialLecture?.modules?.[0]?.lessons?.[0]?.videoUrl) ? "url" : "upload"
+  );
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [videoUploadProgress, setVideoUploadProgress] = useState(0);
 
   // PDF
   const [hasPdf, setHasPdf] = useState(Boolean(initialLecture?.resources?.length));
   const [pdfTitle, setPdfTitle] = useState(initialLecture?.resources?.[0]?.title || "");
-  const [pdfUrl, setPdfUrl] = useState(initialLecture?.resources?.[0]?.fileUrl || "");
+  const [pdfUrl, setPdfUrl] = useState(
+    initialLecture?.resources?.[0]?.fileUrl ||
+    initialLecture?.resources?.[0]?.url ||
+    ""
+  );
   const [isUploadingPdf, setIsUploadingPdf] = useState(false);
 
   // Quiz
@@ -86,6 +104,52 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
     "الصف الثاني الثانوي",
     "الصف الثالث الثانوي"
   ];
+
+  useEffect(() => {
+    if (!initialLecture) return;
+    const aud = parseLectureAudience(initialLecture.description || "");
+    setTitle(initialLecture.title || "");
+    setDescription(cleanLectureDescription(initialLecture.description || ""));
+    setGrade(initialLecture.grade || "الصف الثالث الثانوي");
+    setTargetAudience(aud.type || "all");
+    setSelectedCenters(aud.centers || []);
+    setPrice(String(initialLecture.price ?? "50"));
+    setDiscountPercent(String(initialLecture.discountPercent ?? "0"));
+    setIsFree(Boolean(initialLecture.price === 0));
+    setIsPublished(initialLecture.isPublished !== false);
+    setThumbnailUrl(initialLecture.thumbnailUrl || "");
+
+    const vTitle = initialLecture.units?.[0]?.title || initialLecture.modules?.[0]?.lessons?.[0]?.title || "";
+    const vUrl = initialLecture.units?.[0]?.youtubeVideoId || initialLecture.units?.[0]?.videoUrl || initialLecture.modules?.[0]?.lessons?.[0]?.videoUrl || "";
+    setVideoTitle(vTitle);
+    setVideoUrl(vUrl);
+    if (vUrl) setVideoInputMode("url");
+
+    if (initialLecture.resources && initialLecture.resources.length > 0) {
+      setHasPdf(true);
+      setPdfTitle(initialLecture.resources[0].title || "");
+      setPdfUrl(initialLecture.resources[0].fileUrl || initialLecture.resources[0].url || "");
+    } else {
+      setHasPdf(false);
+      setPdfTitle("");
+      setPdfUrl("");
+    }
+
+    if (initialLecture.quizzes && initialLecture.quizzes.length > 0) {
+      const qz = initialLecture.quizzes[0];
+      setHasQuiz(true);
+      setQuizTitle(qz.title || "كويز على المحاضرة");
+      setQuizMinutes(qz.minutes || 15);
+      if (qz.questions && qz.questions.length > 0) {
+        setQuestions(qz.questions.map(q => ({ ...emptyQuestion(), ...q, choices: q.choices && q.choices.length ? q.choices : ["", "", "", ""] })));
+      }
+    } else {
+      setHasQuiz(false);
+      setQuizTitle("كويز على المحاضرة");
+      setQuizMinutes(15);
+      setQuestions([emptyQuestion()]);
+    }
+  }, [initialLecture]);
 
   useEffect(() => {
     getTenantStudents()
