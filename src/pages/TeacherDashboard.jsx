@@ -160,8 +160,8 @@ export default function TeacherDashboard() {
 
   async function handleResetStudentPassword() {
     const pwd = resetPwdValue.trim();
-    if (!pwd || pwd.length < 4) {
-      setError("كلمة المرور يجب أن تكون 4 أحرف على الأقل.");
+    if (!pwd || pwd.length < 8) {
+      setError("كلمة المرور يجب أن تكون 8 أرقام على الأقل.");
       return;
     }
     const studentUid = resetPwdStudent?.uid || resetPwdStudent?.id;
@@ -2569,7 +2569,7 @@ export default function TeacherDashboard() {
             </p>
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                كلمة المرور الجديدة (4 أحرف على الأقل)
+                كلمة المرور الجديدة (8 أرقام على الأقل)
               </label>
               <input
                 type="password"
