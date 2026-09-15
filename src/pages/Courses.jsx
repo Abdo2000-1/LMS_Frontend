@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { BookOpen, PlayCircle, Search, Filter, Video, Edit3, Sparkles, Building2, Globe, Users } from "lucide-react";
+import { BookOpen, PlayCircle, Search, Filter, Video, Edit3, Sparkles, Building2, Globe, Users, CheckCircle2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { subscribeCourses, getCourseGrades, parseLectureAudience, cleanLectureDescription } from "../services/courseService.js";
+import { subscribeCourses, getCourseGrades, parseLectureAudience, cleanLectureDescription, checkUserHasAccess } from "../services/courseService.js";
 import AppHeader from "../components/AppHeader.jsx";
 import Footer from "../components/Footer.jsx";
 
@@ -18,7 +18,7 @@ function getFinalPrice(course) {
 }
 
 export default function Courses() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const [searchParams] = useSearchParams();
   const initialGradeParam = searchParams.get("grade") || "الكل";
 
@@ -31,6 +31,10 @@ export default function Courses() {
   useEffect(() => subscribeCourses(setCourses), []);
 
   useEffect(() => {
+    refreshProfile?.().catch(() => {});
+  }, [refreshProfile]);
+
+  useEffect(() => {
     const g = searchParams.get("grade");
     if (g) {
       setSelectedGrade(g);
@@ -38,7 +42,6 @@ export default function Courses() {
     }
   }, [searchParams]);
 
-  const enrolledSet = useMemo(() => new Set(user?.enrolledCourses || []), [user?.enrolledCourses]);
   const isTeacher = ["teacher", "admin", "developer"].includes(String(user?.role || "").toLowerCase());
 
   // Strictly 3 grades + "الكل"
@@ -262,8 +265,9 @@ export default function Courses() {
 
             <motion.div initial="hidden" animate="show" variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {visibleStandaloneLectures.map((lecture) => {
-                const enrolled = enrolledSet.has(lecture.id);
+                const isPurchased = checkUserHasAccess(lecture.id, user);
                 const finalPrice = getFinalPrice(lecture);
+                const hasAccess = isPurchased || isTeacher || finalPrice === 0;
                 const aud = parseLectureAudience(lecture.description);
                 return (
                   <motion.div
@@ -284,11 +288,18 @@ export default function Courses() {
                           <Video size={44} />
                         </div>
                       )}
-                      <span className="absolute top-3 right-3 text-xs font-black text-white bg-[#FF6B35] px-3 py-1 rounded-xl shadow-md flex items-center gap-1">
-                        <Video size={12} />
-                        محاضرة مستقلة
-                      </span>
-                      {Number(lecture.discountPercent || 0) > 0 && (
+                      {isPurchased ? (
+                        <span className="absolute top-3 right-3 text-xs font-black text-white bg-emerald-600 px-3 py-1 rounded-xl shadow-md flex items-center gap-1">
+                          <CheckCircle2 size={12} />
+                          مشترى بالفعل
+                        </span>
+                      ) : (
+                        <span className="absolute top-3 right-3 text-xs font-black text-white bg-[#FF6B35] px-3 py-1 rounded-xl shadow-md flex items-center gap-1">
+                          <Video size={12} />
+                          محاضرة مستقلة
+                        </span>
+                      )}
+                      {Number(lecture.discountPercent || 0) > 0 && !isPurchased && (
                         <span className="absolute top-3 left-3 text-xs font-black text-white bg-red-600 px-2 py-0.5 rounded-lg shadow-md">
                           خصم {lecture.discountPercent}%
                         </span>
@@ -328,46 +339,66 @@ export default function Courses() {
                           {lecture.grade || "عام"}
                         </span>
                         <div className="flex items-center gap-2">
-                          {Number(lecture.discountPercent || 0) > 0 && (
-                            <span className="line-through decoration-red-500 decoration-2 text-slate-400 font-bold text-xs">{lecture.price || 0} ج.م</span>
+                          {isPurchased ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                              <CheckCircle2 size={12} /> مشترى بالفعل
+                            </span>
+                          ) : (
+                            <>
+                              {Number(lecture.discountPercent || 0) > 0 && (
+                                <span className="line-through decoration-red-500 decoration-2 text-slate-400 font-bold text-xs">{lecture.price || 0} ج.م</span>
+                              )}
+                              <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm sm:text-base">
+                                {finalPrice === 0 ? "مجانية" : `${finalPrice} ج.م`}
+                              </span>
+                            </>
                           )}
-                          <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm sm:text-base">
-                            {finalPrice === 0 ? "مجانية" : `${finalPrice} ج.م`}
-                          </span>
                         </div>
                       </div>
 
                       <div className="flex flex-col gap-2 pt-2">
-                        <Link
-                          to={`/courses/${lecture.id}`}
-                          className="text-center border border-[#0077B6] text-[#0077B6] dark:border-cyan-400 dark:text-cyan-400 rounded-2xl py-2.5 text-xs font-black hover:bg-[#0077B6] hover:text-white dark:hover:bg-cyan-400 dark:hover:text-slate-950 transition-all duration-300 active:scale-[0.97] flex items-center justify-center gap-1.5"
-                        >
-                          <PlayCircle size={16} />
-                          {enrolled || finalPrice === 0 || isTeacher ? "الدخول للمحاضرة" : "معاينة المحاضرة"}
-                        </Link>
+                        {hasAccess ? (
+                          <>
+                            <Link
+                              to={`/courses/${lecture.id}`}
+                              className="text-center bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white rounded-2xl py-2.5 text-xs font-black hover:shadow-md transition-all duration-300 active:scale-[0.97] flex items-center justify-center gap-1.5"
+                            >
+                              <PlayCircle size={16} />
+                              الدخول للمحاضرة
+                            </Link>
 
-                        {isTeacher && (
-                          <Link
-                            to={`/teacher/dashboard?tab=add-standalone-lecture&edit=${lecture.id}`}
-                            className="text-center bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl py-2 text-xs font-black transition-all flex items-center justify-center gap-1"
-                          >
-                            <Edit3 size={14} />
-                            تعديل المحاضرة
-                          </Link>
-                        )}
-
-                        {!isTeacher && (enrolled || finalPrice === 0 ? (
-                          <span className="text-center bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-2xl py-2 text-xs font-extrabold border border-emerald-200 dark:border-emerald-800/60">
-                            {finalPrice === 0 ? "محاضرة مجانية" : "مفعلة بحسابك"}
-                          </span>
+                            {isTeacher ? (
+                              <Link
+                                to={`/teacher/dashboard?tab=add-standalone-lecture&edit=${lecture.id}`}
+                                className="text-center bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl py-2 text-xs font-black transition-all flex items-center justify-center gap-1"
+                              >
+                                <Edit3 size={14} />
+                                تعديل المحاضرة
+                              </Link>
+                            ) : (
+                              <span className="text-center bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-2xl py-1.5 text-xs font-extrabold border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-center gap-1">
+                                <CheckCircle2 size={13} className="text-emerald-600 dark:text-emerald-400" />
+                                {finalPrice === 0 ? "محاضرة مجانية" : "مشترى بالفعل"}
+                              </span>
+                            )}
+                          </>
                         ) : (
-                          <Link
-                            to={`/courses/${lecture.id}/payment`}
-                            className="text-center bg-gradient-to-r from-[#FF6B35] to-[#f75216] text-white rounded-2xl py-2 text-xs font-black hover:shadow-md transition-all duration-300 active:scale-[0.97]"
-                          >
-                            الاشتراك في المحاضرة
-                          </Link>
-                        ))}
+                          <>
+                            <Link
+                              to={`/courses/${lecture.id}`}
+                              className="text-center border border-[#0077B6] text-[#0077B6] dark:border-cyan-400 dark:text-cyan-400 rounded-2xl py-2.5 text-xs font-black hover:bg-[#0077B6] hover:text-white dark:hover:bg-cyan-400 dark:hover:text-slate-950 transition-all duration-300 active:scale-[0.97] flex items-center justify-center gap-1.5"
+                            >
+                              <PlayCircle size={16} />
+                              معاينة المحاضرة
+                            </Link>
+                            <Link
+                              to={`/courses/${lecture.id}/payment`}
+                              className="text-center bg-gradient-to-r from-[#FF6B35] to-[#f75216] text-white rounded-2xl py-2 text-xs font-black hover:shadow-md transition-all duration-300 active:scale-[0.97]"
+                            >
+                              الاشتراك في المحاضرة
+                            </Link>
+                          </>
+                        )}
                       </div>
                     </div>
                   </motion.div>
@@ -392,8 +423,9 @@ export default function Courses() {
 
           <motion.div initial="hidden" animate="show" variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {fullCourses.map((course) => {
-              const enrolled = enrolledSet.has(course.id);
+              const isPurchased = checkUserHasAccess(course.id, user);
               const finalPrice = getFinalPrice(course);
+              const hasAccess = isPurchased || isTeacher || finalPrice === 0;
               return (
                 <motion.div
                   key={course.id}
@@ -413,11 +445,16 @@ export default function Courses() {
                         <BookOpen size={40} />
                       </div>
                     )}
-                    {Number(course.discountPercent || 0) > 0 && (
+                    {isPurchased ? (
+                      <span className="absolute top-3 right-3 text-xs font-black text-white bg-emerald-600 px-3 py-1 rounded-xl shadow-md flex items-center gap-1">
+                        <CheckCircle2 size={12} />
+                        مشترى بالفعل
+                      </span>
+                    ) : Number(course.discountPercent || 0) > 0 ? (
                       <span className="absolute top-3 right-3 text-xs font-black text-white bg-red-600 px-2.5 py-1 rounded-xl shadow-md">
                         خصم {course.discountPercent}%
                       </span>
-                    )}
+                    ) : null}
                   </div>
 
                   <div className="p-5 flex flex-col gap-3 flex-1 text-right">
@@ -434,35 +471,54 @@ export default function Courses() {
                         {course.grade || "عام"}
                       </span>
                       <div className="flex items-center gap-2">
-                        {Number(course.discountPercent || 0) > 0 && (
-                          <span className="line-through decoration-red-500 decoration-2 text-slate-400 font-bold text-xs">{course.price || 0} ج.م</span>
+                        {isPurchased ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                            <CheckCircle2 size={12} /> مشترى بالفعل
+                          </span>
+                        ) : (
+                          <>
+                            {Number(course.discountPercent || 0) > 0 && (
+                              <span className="line-through decoration-red-500 decoration-2 text-slate-400 font-bold text-xs">{course.price || 0} ج.م</span>
+                            )}
+                            <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm sm:text-base">
+                              {finalPrice === 0 ? "مجاني" : `${finalPrice} ج.م`}
+                            </span>
+                          </>
                         )}
-                        <span className="font-black text-[#0077B6] dark:text-cyan-400 text-sm sm:text-base">
-                          {finalPrice === 0 ? "مجاني" : `${finalPrice} ج.م`}
-                        </span>
                       </div>
                     </div>
 
                     <div className="flex flex-col gap-2 pt-2">
-                      <Link
-                        to={`/courses/${course.id}`}
-                        className="text-center border border-[#0077B6] text-[#0077B6] dark:border-cyan-400 dark:text-cyan-400 rounded-2xl py-2.5 text-xs font-black hover:bg-[#0077B6] hover:text-white dark:hover:bg-cyan-400 dark:hover:text-slate-950 transition-all duration-300 active:scale-[0.97] flex items-center justify-center gap-1.5"
-                      >
-                        <PlayCircle size={16} />
-                        {enrolled || finalPrice === 0 || isTeacher ? "الدخول للكورس" : "معاينة المحتوى والدروس"}
-                      </Link>
-
-                      {enrolled || isTeacher || finalPrice === 0 ? (
-                        <span className="text-center bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-2xl py-2 text-xs font-extrabold border border-emerald-200 dark:border-emerald-800/60">
-                          {finalPrice === 0 ? "كورس مجاني" : "مشترك بالفعل"}
-                        </span>
+                      {hasAccess ? (
+                        <>
+                          <Link
+                            to={`/courses/${course.id}`}
+                            className="text-center bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white rounded-2xl py-2.5 text-xs font-black hover:shadow-md transition-all duration-300 active:scale-[0.97] flex items-center justify-center gap-1.5"
+                          >
+                            <PlayCircle size={16} />
+                            الدخول للكورس
+                          </Link>
+                          <span className="text-center bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-2xl py-1.5 text-xs font-extrabold border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-center gap-1">
+                            <CheckCircle2 size={13} className="text-emerald-600 dark:text-emerald-400" />
+                            {finalPrice === 0 ? "كورس مجاني" : "مشترى بالفعل"}
+                          </span>
+                        </>
                       ) : (
-                        <Link
-                          to={`/courses/${course.id}/payment`}
-                          className="text-center bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white rounded-2xl py-2 text-xs font-black hover:shadow-md transition-all duration-300 active:scale-[0.97]"
-                        >
-                          شراء الكورس الكامل
-                        </Link>
+                        <>
+                          <Link
+                            to={`/courses/${course.id}`}
+                            className="text-center border border-[#0077B6] text-[#0077B6] dark:border-cyan-400 dark:text-cyan-400 rounded-2xl py-2.5 text-xs font-black hover:bg-[#0077B6] hover:text-white dark:hover:bg-cyan-400 dark:hover:text-slate-950 transition-all duration-300 active:scale-[0.97] flex items-center justify-center gap-1.5"
+                          >
+                            <PlayCircle size={16} />
+                            معاينة المحتوى والدروس
+                          </Link>
+                          <Link
+                            to={`/courses/${course.id}/payment`}
+                            className="text-center bg-gradient-to-r from-[#0077B6] to-[#00A8E8] text-white rounded-2xl py-2 text-xs font-black hover:shadow-md transition-all duration-300 active:scale-[0.97]"
+                          >
+                            شراء الكورس الكامل
+                          </Link>
+                        </>
                       )}
                     </div>
                   </div>

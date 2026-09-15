@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Award, BookOpen, ClipboardCheck, Flame, PlayCircle, TrendingUp, TimerReset, Sparkles, KeyRound } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { subscribeCourses } from "../services/courseService.js";
+import { subscribeCourses, checkUserHasAccess } from "../services/courseService.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import RedeemCodeModal from "../components/RedeemCodeModal.jsx";
 
@@ -19,16 +19,19 @@ function formatDuration(seconds) {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const [courses, setCourses] = useState([]);
   const [isRedeemOpen, setIsRedeemOpen] = useState(false);
 
   useEffect(() => subscribeCourses(setCourses), []);
 
+  useEffect(() => {
+    refreshProfile?.().catch(() => {});
+  }, [refreshProfile]);
+
   const enrolledCourses = useMemo(() => {
-    const enrolledIds = new Set(user?.enrolledCourses || []);
-    return courses.filter((course) => enrolledIds.has(course.id));
-  }, [courses, user?.enrolledCourses]);
+    return courses.filter((course) => checkUserHasAccess(course.id, user));
+  }, [courses, user?.enrolledCourses, user?.allowedUnits]);
 
   const orderedProgressEntries = useMemo(() => {
     return enrolledCourses

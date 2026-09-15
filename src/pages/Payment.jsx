@@ -15,7 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { getCourseById } from "../services/courseService.js";
+import { getCourseById, checkUserHasAccess } from "../services/courseService.js";
 import {
   createPaymentOrder,
   submitManualPaymentRequest,
@@ -62,8 +62,8 @@ export default function Payment() {
 
   const finalPrice = useMemo(() => calculateFinalPrice(course), [course]);
   const alreadyEnrolled = useMemo(
-    () => (user?.enrolledCourses || []).includes(courseId),
-    [user?.enrolledCourses, courseId]
+    () => checkUserHasAccess(courseId, user),
+    [user?.enrolledCourses, user?.allowedUnits, courseId]
   );
 
   if (course && finalPrice === 0) {

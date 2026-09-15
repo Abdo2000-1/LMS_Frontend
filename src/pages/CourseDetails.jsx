@@ -108,19 +108,22 @@ export default function CourseDetails() {
     () => user?.progress?.[courseId]?.watchedLessons || [],
     [user?.progress, courseId]
   );
-  const enrolled = useMemo(
-    () => (user?.enrolledCourses || []).includes(courseId),
-    [user?.enrolledCourses, courseId]
-  );
+  const enrolled = useMemo(() => {
+    const cId = String(courseId || "").trim().toLowerCase();
+    return (user?.enrolledCourses || []).some((id) => String(id || "").trim().toLowerCase() === cId);
+  }, [user?.enrolledCourses, courseId]);
   const finalPrice = course ? Math.max(0, course.price * (1 - (course.discountPercent || 0) / 100)) : 0;
   const isFree = finalPrice === 0;
 
   const userAllowedUnitsForCourse = useMemo(() => {
     if (!user?.allowedUnits) return [];
-    const cId = String(courseId || "").toLowerCase();
+    const cId = String(courseId || "").trim().toLowerCase();
     for (const [key, val] of Object.entries(user.allowedUnits)) {
-      if (String(key).toLowerCase() === cId && Array.isArray(val)) {
+      if (String(key).trim().toLowerCase() === cId && Array.isArray(val)) {
         return val;
+      }
+      if (Array.isArray(val) && val.some((lid) => String(lid || "").trim().toLowerCase() === cId)) {
+        return [courseId];
       }
     }
     return [];

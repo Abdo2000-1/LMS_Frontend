@@ -754,3 +754,35 @@ export function cleanLectureDescription(description = "") {
   if (!description) return "";
   return String(description).replace(/<!--TARGET_AUDIENCE:(.*?)-->/g, "").trim();
 }
+
+/**
+ * Checks whether the current user has access to a course
+ * (either through full enrollment or selective access code / teacher activation).
+ */
+export function checkUserHasAccess(courseId, user) {
+  if (!user || !courseId) return false;
+  const targetId = String(courseId).trim().toLowerCase();
+
+  // 1. Check enrolledCourses (case-insensitive)
+  if (Array.isArray(user.enrolledCourses)) {
+    if (user.enrolledCourses.some((id) => String(id || "").trim().toLowerCase() === targetId)) {
+      return true;
+    }
+  }
+
+  // 2. Check allowedUnits (either by course key or inner lecture id)
+  if (user.allowedUnits && typeof user.allowedUnits === "object") {
+    for (const [key, val] of Object.entries(user.allowedUnits)) {
+      const keyNorm = String(key || "").trim().toLowerCase();
+      if (keyNorm === targetId) {
+        if (Array.isArray(val) && val.length > 0) return true;
+        if (val === true) return true;
+      }
+      if (Array.isArray(val) && val.some((lid) => String(lid || "").trim().toLowerCase() === targetId)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
