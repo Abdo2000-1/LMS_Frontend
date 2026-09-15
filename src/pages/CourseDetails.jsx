@@ -115,41 +115,6 @@ export default function CourseDetails() {
   const finalPrice = course ? Math.max(0, course.price * (1 - (course.discountPercent || 0) / 100)) : 0;
   const isFree = finalPrice === 0;
 
-  useEffect(() => {
-    let mounted = true;
-    getCourseById(courseId, { includeUnpublished: isTeacher })
-      .then((result) => { if (mounted) setCourse(result); })
-      .catch(() => { if (mounted) setError("تعذر تحميل الكورس."); });
-    return () => { mounted = false; };
-  }, [courseId, isTeacher]);
-
-  // Auto-enroll student in free courses silently so backend endpoints work
-  // BUT ONLY IF student does not have selective access!
-  useEffect(() => {
-    if (!course || !user || isTeacher || isSelectiveCodeStudent) return;
-    if (isFree && !enrolled) {
-      enrollStudentInCourse({ uid: user.uid, courseId })
-        .then(() => refreshProfile())
-        .catch(() => {});
-    }
-  }, [course?.id, isFree, enrolled, isTeacher, isSelectiveCodeStudent, user?.uid, courseId, refreshProfile]);
-
-  const units = useMemo(() => {
-    if (!course?.units) return [];
-    return [...course.units].sort((a, b) => (a.order || 0) - (b.order || 0));
-  }, [course?.units]);
-
-  const quizzes = useMemo(() => {
-    if (!course?.quizzes) return [];
-    return [...course.quizzes].sort((a, b) => (a.order || 0) - (b.order || 0));
-  }, [course?.quizzes]);
-
-  const rawContentItems = useMemo(() => buildCourseContent(course || {}), [course]);
-
-  const allVideosCount = useMemo(() => rawContentItems.filter((item) => item.type === "video").length, [rawContentItems]);
-  const allResourcesCount = useMemo(() => rawContentItems.filter((item) => item.type === "resource").length, [rawContentItems]);
-  const allQuizzesCount = useMemo(() => rawContentItems.filter((item) => item.type === "quiz").length, [rawContentItems]);
-
   const userAllowedUnitsForCourse = useMemo(() => {
     if (!user?.allowedUnits) return [];
     const cId = String(courseId || "").toLowerCase();
@@ -196,6 +161,41 @@ export default function CourseDetails() {
       });
     });
   }
+
+  useEffect(() => {
+    let mounted = true;
+    getCourseById(courseId, { includeUnpublished: isTeacher })
+      .then((result) => { if (mounted) setCourse(result); })
+      .catch(() => { if (mounted) setError("تعذر تحميل الكورس."); });
+    return () => { mounted = false; };
+  }, [courseId, isTeacher]);
+
+  // Auto-enroll student in free courses silently so backend endpoints work
+  // BUT ONLY IF student does not have selective access!
+  useEffect(() => {
+    if (!course || !user || isTeacher || isSelectiveCodeStudent) return;
+    if (isFree && !enrolled) {
+      enrollStudentInCourse({ uid: user.uid, courseId })
+        .then(() => refreshProfile())
+        .catch(() => {});
+    }
+  }, [course?.id, isFree, enrolled, isTeacher, isSelectiveCodeStudent, user?.uid, courseId, refreshProfile]);
+
+  const units = useMemo(() => {
+    if (!course?.units) return [];
+    return [...course.units].sort((a, b) => (a.order || 0) - (b.order || 0));
+  }, [course?.units]);
+
+  const quizzes = useMemo(() => {
+    if (!course?.quizzes) return [];
+    return [...course.quizzes].sort((a, b) => (a.order || 0) - (b.order || 0));
+  }, [course?.quizzes]);
+
+  const rawContentItems = useMemo(() => buildCourseContent(course || {}), [course]);
+
+  const allVideosCount = useMemo(() => rawContentItems.filter((item) => item.type === "video").length, [rawContentItems]);
+  const allResourcesCount = useMemo(() => rawContentItems.filter((item) => item.type === "resource").length, [rawContentItems]);
+  const allQuizzesCount = useMemo(() => rawContentItems.filter((item) => item.type === "quiz").length, [rawContentItems]);
 
   const contentItems = useMemo(() => {
     if (isTeacher) return rawContentItems;
