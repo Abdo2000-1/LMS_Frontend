@@ -655,6 +655,15 @@ export async function resetStudentPassword(uid, newPassword) {
   }
 }
 
+export async function revokeStudentCourseAccess(uid, courseId) {
+  try {
+    const { data } = await apiClient.delete(`/api/users/${uid}/courses/${courseId}`, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
 export async function submitExamAttempt({ examId, answers, timeSpentSeconds = 0 }) {
   try {
     const { data } = await apiClient.post(`/api/exams/${examId}/attempt`, {

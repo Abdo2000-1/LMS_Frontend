@@ -103,6 +103,23 @@ export async function approvePaymentRequest(requestId) {
   }
 }
 
+export async function rejectPaymentRequest(requestId) {
+  try {
+    await apiClient.post(`/api/payments/requests/${requestId}/reject`, null, requestConfig);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function getMyPaymentRequests() {
+  try {
+    const { data } = await apiClient.get("/api/payments/my-requests", requestConfig);
+    return Array.isArray(data) ? data.map(mapPaymentRequest) : [];
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
 export function subscribePaymentRequests(callback) {
   let active = true;
 

@@ -54,15 +54,16 @@ import {
   unblockStudent,
   updateStudentId,
   resetStudentPassword,
+  revokeStudentCourseAccess,
   addLessonToModule
 } from "../services/courseService.js";
-import { approvePaymentRequest, subscribePaymentRequests, subscribePayments } from "../services/paymentService.js";
+import { approvePaymentRequest, rejectPaymentRequest, subscribePaymentRequests, subscribePayments } from "../services/paymentService.js";
 import { uploadFileToStorage, uploadImageToStorage } from "../services/storageService.js";
 import apiClient from "../lib/apiClient.js";
 import AccessCodeManager from "../components/AccessCodeManager.jsx";
 import TeacherEssayGrader from "../components/TeacherEssayGrader.jsx";
 import StandaloneLectureForm from "../components/StandaloneLectureForm.jsx";
-import { KeyRound, FileEdit, Video } from "lucide-react";
+import { KeyRound, FileEdit, Video, UserX, XCircle } from "lucide-react";
 
 const tabs = [
   { id: "courses", label: "الكورسات الكاملة", icon: BookOpen },
@@ -911,6 +912,24 @@ export default function TeacherDashboard() {
     }
   }
 
+  async function rejectRequest(requestId) {
+    if (!window.confirm("هل أنت متأكد من رفض هذا الطلب؟")) return;
+    setError("");
+    setNotice("");
+    setIsBusy(true);
+    try {
+      await rejectPaymentRequest(requestId);
+      setPaymentRequests((items) =>
+        items.map((item) => (item.id === requestId ? { ...item, status: "rejected" } : item))
+      );
+      setNotice("تم رفض طلب الدفع بنجاح.");
+    } catch (err) {
+      setErrorMessage(err.message || "فشل رفض الطلب.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function toggleStudentBlock(studentObj) {
     setError("");
     setNotice("");
@@ -926,6 +945,29 @@ export default function TeacherDashboard() {
       setStudents(refreshed);
     } catch (err) {
       setErrorMessage(err.message || "فشل تحديث حالة الطالب.");
+    }
+  }
+
+  async function handleRevokeStudentCourse(courseId, courseTitle) {
+    if (!selectedStudentDetail?.uid) return;
+    const studentName = selectedStudentDetail.name || "الطالب";
+    if (!window.confirm(`هل أنت متأكد من طرد ${studentName} من كورس "${courseTitle}"؟\n\nتنبيه هام: لن يتمكن الطالب من دخول هذا الكورس نهائياً إلا بعد دفع حقه وتفعيله من جديد.`)) {
+      return;
+    }
+    setError("");
+    setNotice("");
+    setIsBusy(true);
+    try {
+      await revokeStudentCourseAccess(selectedStudentDetail.uid, courseId);
+      setNotice(`تم طرد الطالب من كورس "${courseTitle}" بنجاح.`);
+      const { data } = await apiClient.get(`/api/users/students/${selectedStudentDetail.uid}`);
+      setSelectedStudentDetail(data);
+      const refreshed = await getTenantStudents();
+      setStudents(refreshed);
+    } catch (err) {
+      setErrorMessage(err.message || "فشل طرد الطالب من الكورس.");
+    } finally {
+      setIsBusy(false);
     }
   }
 
@@ -1806,9 +1848,21 @@ export default function TeacherDashboard() {
                   <div className="space-y-3">
                     {selectedStudentDetail.courseProgress && selectedStudentDetail.courseProgress.map((cp) => (
                       <div key={cp.courseId} className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-                        <div className="flex justify-between items-center text-sm font-extrabold">
-                          <span className="text-slate-900">{cp.courseTitle}</span>
-                          <span className="text-[#0077B6]">{cp.percentage}%</span>
+                        <div className="flex justify-between items-center text-sm font-extrabold gap-2">
+                          <span className="text-slate-900 truncate">{cp.courseTitle}</span>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="text-[#0077B6]">{cp.percentage}%</span>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => handleRevokeStudentCourse(cp.courseId, cp.courseTitle)}
+                              className="inline-flex items-center gap-1.5 text-xs bg-red-50 hover:bg-red-100 text-red-600 font-extrabold px-3 py-1 rounded-xl border border-red-200 transition disabled:opacity-50"
+                              title="طرد الطالب من هذا الكورس وسحب اشتراكه نهائياً"
+                            >
+                              <UserX size={12} />
+                              طرد من الكورس
+                            </button>
+                          </div>
                         </div>
                         <div className="w-full bg-slate-100 rounded-full h-3">
                           <div className="bg-[#00A8E8] h-3 rounded-full" style={{ width: `${cp.percentage}%` }} />
@@ -1883,33 +1937,59 @@ export default function TeacherDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[36rem] overflow-y-auto pr-1">
               {paymentRequests.filter(r => r.status === "pending").map((request) => (
-                <div key={request.id} className="rounded-2xl border border-cyan-100 bg-cyan-50/20 p-5 flex flex-col justify-between space-y-4">
+                <div key={request.id} className="rounded-2xl border border-cyan-200 bg-white p-5 flex flex-col justify-between space-y-4 shadow-sm hover:shadow-md transition">
                   <div className="flex gap-4">
                     <a href={request.proofImageUrl} target="_blank" rel="noreferrer" className="shrink-0 relative group">
-                      <img src={request.proofImageUrl} alt="إثبات الدفع" className="h-28 w-28 rounded-2xl object-cover border border-slate-200 hover:scale-105 transition" />
-                      <div className="absolute inset-0 bg-black/40 rounded-2xl opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] font-bold">
-                        تكبير الصورة
+                      <img src={request.proofImageUrl} alt="إثبات الدفع" className="h-28 w-28 rounded-2xl object-cover border border-slate-200 group-hover:scale-105 transition" />
+                      <div className="absolute inset-0 bg-black/40 rounded-2xl opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[11px] font-black">
+                        تكبير الإثبات 🔍
                       </div>
                     </a>
-                    <div className="min-w-0 flex-1 space-y-1 text-right">
-                      <p className="font-black text-slate-900 text-base">{request.studentName}</p>
-                      <p className="text-xs text-slate-500 font-bold">موبايل: {request.studentPhone}</p>
-                      <p className="text-sm font-extrabold text-[#0077B6] pt-1">{request.courseTitle}</p>
-                      <p className="text-xs text-slate-500 font-bold">القيمة: {request.totalPrice} ج.م · الوسيلة: {request.walletChannel}</p>
-                      <p className="text-[10px] text-slate-400">تاريخ الطلب: {formatDate(request.createdAt)}</p>
+                    <div className="min-w-0 flex-1 space-y-1.5 text-right">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-black text-slate-900 text-base truncate">{request.studentName}</p>
+                        <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full shrink-0">
+                          بانتظار المراجعة
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 font-bold">
+                        📱 هاتف الطالب: <span dir="ltr" className="text-slate-800">{request.studentPhone || "غير مسجل"}</span>
+                      </p>
+                      <p className="text-sm font-extrabold text-[#0077B6] pt-0.5">
+                        📚 الكورس المطلوب: <span className="text-slate-900">{request.courseTitle}</span>
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs font-bold text-slate-600">
+                        <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-200 font-black">
+                          المبلغ: {request.totalPrice} ج.م
+                        </span>
+                        <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200">
+                          الوسيلة: {request.walletChannel === "vodafone-cash" ? "فودافون كاش" : request.walletChannel === "instapay" ? "إنستاباي" : request.walletChannel}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-bold pt-1">
+                        🕒 تاريخ ووقت الطلب: {formatDate(request.createdAt)}
+                      </p>
                     </div>
                   </div>
                   
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                    <span className="bg-amber-100 text-amber-700 text-[10px] font-black px-3 py-1 rounded-full">
-                      معلق - بانتظار الاعتماد
-                    </span>
+                  <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => rejectRequest(request.id)}
+                      className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 disabled:opacity-50 font-extrabold text-xs px-4 py-2.5 rounded-xl transition flex items-center gap-1.5"
+                      title="رفض هذا الطلب وعدم تفعيل الكورس"
+                    >
+                      <XCircle size={14} />
+                      رفض الطلب
+                    </button>
                     <button
                       type="button"
                       disabled={isBusy}
                       onClick={() => approveRequest(request.id)}
-                      className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-md transition"
+                      className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-1.5"
                     >
+                      <Check size={14} />
                       اعتماد وتفعيل الكورس للطالب
                     </button>
                   </div>

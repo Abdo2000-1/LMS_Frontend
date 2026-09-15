@@ -114,8 +114,6 @@ export default function CourseDetails() {
   );
   const finalPrice = course ? Math.max(0, course.price * (1 - (course.discountPercent || 0) / 100)) : 0;
   const isFree = finalPrice === 0;
-  // Teacher can always access everything
-  const hasAccess = isTeacher || enrolled || isFree;
 
   useEffect(() => {
     let mounted = true;
@@ -152,16 +150,33 @@ export default function CourseDetails() {
   const allQuizzesCount = useMemo(() => rawContentItems.filter((item) => item.type === "quiz").length, [rawContentItems]);
 
   const userAllowedUnitsForCourse = user?.allowedUnits?.[courseId] || user?.allowedUnits?.[course?.id];
-  const isSelectiveCodeStudent = !isTeacher && Array.isArray(userAllowedUnitsForCourse) && userAllowedUnitsForCourse.length > 0;
+  const backendUnlockedLectureIds = course?.unlockedLectureIds || [];
+  const effectiveAllowedIds = useMemo(() => {
+    const set = new Set();
+    if (Array.isArray(userAllowedUnitsForCourse)) {
+      userAllowedUnitsForCourse.forEach((id) => set.add(String(id)));
+    }
+    if (Array.isArray(backendUnlockedLectureIds)) {
+      backendUnlockedLectureIds.forEach((id) => set.add(String(id)));
+    }
+    return Array.from(set);
+  }, [userAllowedUnitsForCourse, backendUnlockedLectureIds]);
+
+  const isSelectiveCodeStudent = !isTeacher && !course?.hasFullAccess && effectiveAllowedIds.length > 0;
+  const hasFullCourseAccess = isTeacher || Boolean(course?.hasFullAccess) || (enrolled && !isSelectiveCodeStudent) || isFree;
+  const hasAccess = hasFullCourseAccess || isSelectiveCodeStudent;
 
   const contentItems = useMemo(() => {
-    if (isTeacher || !isSelectiveCodeStudent) return rawContentItems;
-    // Selective Code student: ONLY show allowed lectures, PDFs, and quizzes!
-    return rawContentItems.filter((item) => {
-      const ids = [item.id, item.unitId, item.lessonId, item.resourceId, item.quizId].filter(Boolean);
-      return ids.some((id) => userAllowedUnitsForCourse.includes(id));
-    });
-  }, [rawContentItems, isTeacher, isSelectiveCodeStudent, userAllowedUnitsForCourse]);
+    if (isTeacher) return rawContentItems;
+    if (isSelectiveCodeStudent) {
+      // Selective Code student: ONLY show allowed lectures, PDFs, and quizzes!
+      return rawContentItems.filter((item) => {
+        const ids = [item.id, item.unitId, item.lessonId, item.resourceId, item.quizId].filter(Boolean).map(String);
+        return ids.some((id) => effectiveAllowedIds.includes(id));
+      });
+    }
+    return rawContentItems;
+  }, [rawContentItems, isTeacher, isSelectiveCodeStudent, effectiveAllowedIds]);
 
   const selectedContent = contentItems[selectedContentIndex] || null;
   const courseQuizResults = user?.quizResults?.[courseId] || {};
@@ -175,11 +190,20 @@ export default function CourseDetails() {
   const selectedMandatoryLockReason = selectedContent
     ? mandatoryQuizLockReason(selectedContent, selectedContentIndex, contentItems, courseQuizResults)
     : "";
-  // Teacher sees everything; enrolled students see enrolled content; non-enrolled see only free
+
+  const isItemAllowedForSelective = isSelectiveCodeStudent && selectedContent && (
+    effectiveAllowedIds.includes(String(selectedContent.id)) ||
+    effectiveAllowedIds.includes(String(selectedContent.unitId)) ||
+    effectiveAllowedIds.includes(String(selectedContent.lessonId)) ||
+    effectiveAllowedIds.includes(String(selectedContent.resourceId)) ||
+    effectiveAllowedIds.includes(String(selectedContent.quizId))
+  );
+
+  // Teacher sees everything; enrolled students see enrolled content; selective sees unlocked content
   const selectedUnlocked = selectedContent
     ? isTeacher ||
-      !selectedMandatoryLockReason &&
-        (selectedContent.isFree || hasAccess)
+      (!selectedMandatoryLockReason &&
+        (selectedContent.isFree || hasFullCourseAccess || isItemAllowedForSelective))
     : false;
 
   function goBack() {
@@ -384,9 +408,9 @@ export default function CourseDetails() {
             {!hasAccess && !isFree && (
               <Link
                 to={`/courses/${course.id}/payment`}
-                className="inline-flex items-center gap-2 bg-[#FF6B35] hover:bg-orange-500 text-white font-extrabold px-6 py-3 rounded-2xl shadow-lg hover:scale-[1.02] transition-all duration-200"
+                className="inline-flex items-center gap-2 bg-[#FF6B35] hover:bg-orange-500 text-white font-extrabold px-6 py-3 rounded-2xl shadow-lg hover:scale-[1.02] transition-all duration-200 text-sm"
               >
-                دخول الكورس
+                شراء أو تفعيل بالكود 🔑
                 <ArrowLeft size={16} />
               </Link>
             )}
@@ -501,7 +525,7 @@ export default function CourseDetails() {
                       to={`/courses/${course.id}/payment`}
                       className="inline-flex items-center gap-2 bg-[#FF6B35] hover:bg-orange-500 text-white font-extrabold px-8 py-3.5 rounded-2xl shadow-lg hover:scale-[1.02] transition-all duration-200 text-base"
                     >
-                      ادخل الكورس
+                      شراء أو تفعيل بالكود 🔑
                       <ArrowLeft size={16} />
                     </Link>
                   </div>
