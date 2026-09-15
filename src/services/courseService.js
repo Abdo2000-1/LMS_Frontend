@@ -664,6 +664,15 @@ export async function revokeStudentCourseAccess(uid, courseId) {
   }
 }
 
+export async function revokeStudentLectureAccess(uid, courseId, lectureId) {
+  try {
+    const { data } = await apiClient.delete(`/api/users/${uid}/courses/${courseId}/lectures/${lectureId}`, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
 export async function submitExamAttempt({ examId, answers, timeSpentSeconds = 0 }) {
   try {
     const { data } = await apiClient.post(`/api/exams/${examId}/attempt`, {

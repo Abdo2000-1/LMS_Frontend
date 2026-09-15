@@ -124,14 +124,15 @@ export default function CourseDetails() {
   }, [courseId, isTeacher]);
 
   // Auto-enroll student in free courses silently so backend endpoints work
+  // BUT ONLY IF student does not have selective access!
   useEffect(() => {
-    if (!course || !user || isTeacher) return;
+    if (!course || !user || isTeacher || isSelectiveCodeStudent) return;
     if (isFree && !enrolled) {
       enrollStudentInCourse({ uid: user.uid, courseId })
         .then(() => refreshProfile())
         .catch(() => {});
     }
-  }, [course?.id, isFree, enrolled, isTeacher, user?.uid, courseId, refreshProfile]);
+  }, [course?.id, isFree, enrolled, isTeacher, isSelectiveCodeStudent, user?.uid, courseId, refreshProfile]);
 
   const units = useMemo(() => {
     if (!course?.units) return [];
@@ -149,7 +150,17 @@ export default function CourseDetails() {
   const allResourcesCount = useMemo(() => rawContentItems.filter((item) => item.type === "resource").length, [rawContentItems]);
   const allQuizzesCount = useMemo(() => rawContentItems.filter((item) => item.type === "quiz").length, [rawContentItems]);
 
-  const userAllowedUnitsForCourse = user?.allowedUnits?.[courseId] || user?.allowedUnits?.[course?.id];
+  const userAllowedUnitsForCourse = useMemo(() => {
+    if (!user?.allowedUnits) return [];
+    const cId = String(courseId || "").toLowerCase();
+    for (const [key, val] of Object.entries(user.allowedUnits)) {
+      if (String(key).toLowerCase() === cId && Array.isArray(val)) {
+        return val;
+      }
+    }
+    return [];
+  }, [user?.allowedUnits, courseId]);
+
   const backendUnlockedLectureIds = course?.unlockedLectureIds || [];
   const effectiveAllowedIds = useMemo(() => {
     const set = new Set();
@@ -162,18 +173,35 @@ export default function CourseDetails() {
     return Array.from(set);
   }, [userAllowedUnitsForCourse, backendUnlockedLectureIds]);
 
-  const isSelectiveCodeStudent = !isTeacher && !course?.hasFullAccess && effectiveAllowedIds.length > 0;
-  const hasFullCourseAccess = isTeacher || Boolean(course?.hasFullAccess) || (enrolled && !isSelectiveCodeStudent) || isFree;
+  const isSelectiveCodeStudent = !isTeacher && effectiveAllowedIds.length > 0;
+  // If student has selective access, they CANNOT have full access, even if enrolled or free!
+  const hasFullCourseAccess = isTeacher || (!isSelectiveCodeStudent && (Boolean(course?.hasFullAccess) || enrolled || isFree));
   const hasAccess = hasFullCourseAccess || isSelectiveCodeStudent;
+
+  function matchAllowedItem(item, allowedList) {
+    if (!item || !allowedList || allowedList.length === 0) return false;
+    const itemIds = [
+      item.id,
+      item.unitId,
+      item.lessonId,
+      item.resourceId,
+      item.quizId,
+    ].filter(Boolean).map((x) => String(x));
+
+    return itemIds.some((id) => {
+      const cleanId = id.replace(/-/g, "").toLowerCase();
+      return allowedList.some((allowed) => {
+        const cleanAllowed = String(allowed).replace(/-/g, "").toLowerCase();
+        return cleanAllowed === cleanId || String(allowed) === id;
+      });
+    });
+  }
 
   const contentItems = useMemo(() => {
     if (isTeacher) return rawContentItems;
     if (isSelectiveCodeStudent) {
       // Selective Code student: ONLY show allowed lectures, PDFs, and quizzes!
-      return rawContentItems.filter((item) => {
-        const ids = [item.id, item.unitId, item.lessonId, item.resourceId, item.quizId].filter(Boolean).map(String);
-        return ids.some((id) => effectiveAllowedIds.includes(id));
-      });
+      return rawContentItems.filter((item) => matchAllowedItem(item, effectiveAllowedIds));
     }
     return rawContentItems;
   }, [rawContentItems, isTeacher, isSelectiveCodeStudent, effectiveAllowedIds]);
@@ -191,19 +219,13 @@ export default function CourseDetails() {
     ? mandatoryQuizLockReason(selectedContent, selectedContentIndex, contentItems, courseQuizResults)
     : "";
 
-  const isItemAllowedForSelective = isSelectiveCodeStudent && selectedContent && (
-    effectiveAllowedIds.includes(String(selectedContent.id)) ||
-    effectiveAllowedIds.includes(String(selectedContent.unitId)) ||
-    effectiveAllowedIds.includes(String(selectedContent.lessonId)) ||
-    effectiveAllowedIds.includes(String(selectedContent.resourceId)) ||
-    effectiveAllowedIds.includes(String(selectedContent.quizId))
-  );
+  const isItemAllowedForSelective = isSelectiveCodeStudent && selectedContent && matchAllowedItem(selectedContent, effectiveAllowedIds);
 
   // Teacher sees everything; enrolled students see enrolled content; selective sees unlocked content
   const selectedUnlocked = selectedContent
     ? isTeacher ||
       (!selectedMandatoryLockReason &&
-        (selectedContent.isFree || hasFullCourseAccess || isItemAllowedForSelective))
+        (hasFullCourseAccess ? (selectedContent.isFree || hasAccess) : isItemAllowedForSelective))
     : false;
 
   function goBack() {
@@ -587,9 +609,9 @@ export default function CourseDetails() {
                 contentItems,
                 courseQuizResults
               );
-              const unlocked =
-                isTeacher ||
-                (!lockReason && (item.isFree || hasAccess));
+              const isItemUnlocked =
+                hasFullCourseAccess ? (item.isFree || hasAccess) : matchAllowedItem(item, effectiveAllowedIds);
+              const unlocked = isTeacher || (!lockReason && isItemUnlocked);
               const watched = item.type === "video" && watchedLessons.includes(item.unitId);
               const Icon =
                 item.type === "resource"

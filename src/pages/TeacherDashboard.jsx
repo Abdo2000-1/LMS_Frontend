@@ -55,6 +55,7 @@ import {
   updateStudentId,
   resetStudentPassword,
   revokeStudentCourseAccess,
+  revokeStudentLectureAccess,
   addLessonToModule
 } from "../services/courseService.js";
 import { approvePaymentRequest, rejectPaymentRequest, subscribePaymentRequests, subscribePayments } from "../services/paymentService.js";
@@ -185,6 +186,78 @@ export default function TeacherDashboard() {
       setError(err?.message || "فشل تغيير كلمة المرور.");
     } finally {
       setIsResettingPwd(false);
+    }
+  }
+
+  // ─── Expel Student from Course / Lecture State & Handlers ────────
+  const [expelModalStudent, setExpelModalStudent] = useState(null);
+  const [expelModalCourses, setExpelModalCourses] = useState([]);
+  const [isLoadingExpelCourses, setIsLoadingExpelCourses] = useState(false);
+
+  async function openExpelModal(student) {
+    const studentUid = student.uid || student.id || student.Uid;
+    setExpelModalStudent({
+      uid: studentUid,
+      name: student.name || student.fullName || "الطالب",
+      studentId: student.studentId || student.id || "",
+      phone: student.phone || "",
+    });
+    setExpelModalCourses([]);
+    setIsLoadingExpelCourses(true);
+    setError("");
+    setNotice("");
+    try {
+      const { data } = await apiClient.get(`/api/users/students/${studentUid}`);
+      setExpelModalCourses(data?.courseProgress || []);
+    } catch (err) {
+      setError("تعذر جلب تفاصيل كورسات الطالب.");
+    } finally {
+      setIsLoadingExpelCourses(false);
+    }
+  }
+
+  async function handleExpelFromCourse(courseId, courseTitle) {
+    if (!expelModalStudent?.uid) return;
+    if (!window.confirm(`هل أنت متأكد من طرد ${expelModalStudent.name} من كورس "${courseTitle}" بالكامل؟\n\nتنبيه: لن يتمكن الطالب من دخول هذا الكورس نهائياً إلا بعد تفعيله من جديد.`)) {
+      return;
+    }
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await revokeStudentCourseAccess(expelModalStudent.uid, courseId);
+      setNotice(`تم طرد الطالب من كورس "${courseTitle}" بنجاح 🚫`);
+      // Refresh modal
+      const { data } = await apiClient.get(`/api/users/students/${expelModalStudent.uid}`);
+      setExpelModalCourses(data?.courseProgress || []);
+      // Refresh student list
+      const refreshed = await getTenantStudents();
+      setStudents(refreshed);
+    } catch (err) {
+      setError(err.message || "فشل طرد الطالب من الكورس.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleExpelFromLecture(courseId, lectureId, lectureTitle) {
+    if (!expelModalStudent?.uid) return;
+    if (!window.confirm(`هل أنت متأكد من طرد ${expelModalStudent.name} من "${lectureTitle}"؟\n\nتنبيه: لن يتمكن الطالب من فتح أو مشاهدة هذه المحاضرة نهائياً.`)) {
+      return;
+    }
+    setIsBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await revokeStudentLectureAccess(expelModalStudent.uid, courseId, lectureId);
+      setNotice(`تم إلغاء وصول الطالب لـ "${lectureTitle}" بنجاح 🚫`);
+      // Refresh modal
+      const { data } = await apiClient.get(`/api/users/students/${expelModalStudent.uid}`);
+      setExpelModalCourses(data?.courseProgress || []);
+    } catch (err) {
+      setError(err.message || "فشل طرد الطالب من المحاضرة.");
+    } finally {
+      setIsBusy(false);
     }
   }
 
@@ -1621,6 +1694,14 @@ export default function TeacherDashboard() {
                           </button>
                           <button
                             type="button"
+                            onClick={() => openExpelModal(s)}
+                            className="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-extrabold px-3 py-1.5 rounded-xl transition flex items-center gap-1 border border-red-200 dark:border-red-800/40"
+                            title="إدارة اشتراكات الطالب وطرد من كورس أو محاضرة"
+                          >
+                            🚫 طرد من كورس / محاضرة
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => {
                               setResetPwdStudent({ uid: s.uid || s.id || s.Uid, name: s.name || s.fullName || "" });
                               setResetPwdValue("");
@@ -2686,6 +2767,138 @@ export default function TeacherDashboard() {
                 className="px-5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-2.5 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition"
               >
                 إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Expel Student / Manage Courses Modal ─────────────── */}
+      {expelModalStudent && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" dir="rtl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-6 sm:p-7 w-[min(96vw,560px)] max-h-[90vh] flex flex-col space-y-4 border border-red-200 dark:border-red-900/50">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-red-600 dark:text-red-400 font-black text-base sm:text-lg">
+                <UserX size={22} />
+                <span>إدارة الاشتراكات وطرد الطالب</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setExpelModalStudent(null); setExpelModalCourses([]); setError(""); setNotice(""); }}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Student Info Bar */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div>
+                <span className="text-slate-400 font-bold ml-1">الطالب:</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">{expelModalStudent.name}</span>
+              </div>
+              {expelModalStudent.studentId && (
+                <div>
+                  <span className="text-slate-400 font-bold ml-1">الكود:</span>
+                  <span className="font-mono font-black text-[#0077B6] dark:text-[#00A8E8]">{expelModalStudent.studentId}</span>
+                </div>
+              )}
+              {expelModalStudent.phone && (
+                <div>
+                  <span className="text-slate-400 font-bold ml-1">الهاتف:</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{expelModalStudent.phone}</span>
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <p className="text-xs text-red-600 font-bold bg-red-50 dark:bg-red-950/40 rounded-xl px-3 py-2 border border-red-200 dark:border-red-800">
+                ⚠️ {error}
+              </p>
+            )}
+            {notice && (
+              <p className="text-xs text-emerald-700 font-bold bg-emerald-50 dark:bg-emerald-950/40 rounded-xl px-3 py-2 border border-emerald-200 dark:border-emerald-800">
+                ✅ {notice}
+              </p>
+            )}
+
+            {/* Courses / Lectures list */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {isLoadingExpelCourses ? (
+                <div className="py-12 text-center text-slate-400 text-sm font-bold flex flex-col items-center gap-2">
+                  <Loader2 size={24} className="animate-spin text-[#0077B6]" />
+                  <span>جارٍ تحميل كورسات واشتراكات الطالب...</span>
+                </div>
+              ) : expelModalCourses.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-sm font-bold bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+                  الطالب غير مشترك في أي كورسات أو محاضرات حالياً.
+                </div>
+              ) : (
+                expelModalCourses.map((cp) => (
+                  <div key={cp.courseId} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/70 p-4 space-y-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                          {cp.courseTitle}
+                        </h4>
+                        <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md inline-block mt-1 ${
+                          cp.isSelective
+                            ? "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300"
+                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                        }`}>
+                          {cp.isSelective ? "وصول لمحاضرات محددة" : "اشتراك كامل في الكورس"}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => handleExpelFromCourse(cp.courseId, cp.courseTitle)}
+                        className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-xl shadow-sm transition flex items-center gap-1.5 shrink-0"
+                        title="طرد الطالب وسحب صلاحية الكورس كاملاً"
+                      >
+                        <UserX size={13} />
+                        طرد من الكورس كاملاً 🚫
+                      </button>
+                    </div>
+
+                    {/* If selective access: list individual lectures with expel buttons */}
+                    {cp.allowedLectures && cp.allowedLectures.length > 0 && (
+                      <div className="border-t border-slate-100 dark:border-slate-700/60 pt-2 space-y-1.5">
+                        <p className="text-[11px] font-black text-slate-500 dark:text-slate-400">
+                          المحاضرات المفتوحة له بهذا الكورس:
+                        </p>
+                        <div className="space-y-1.5">
+                          {cp.allowedLectures.map((lec) => (
+                            <div key={lec.lectureId} className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-900/60 px-3 py-2 rounded-xl text-xs">
+                              <span className="text-slate-800 dark:text-slate-200 font-bold truncate">
+                                🎬 {lec.title}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleExpelFromLecture(cp.courseId, lec.lectureId, lec.title)}
+                                className="text-red-600 hover:text-red-700 dark:text-red-400 font-extrabold text-[11px] bg-red-50 dark:bg-red-950/40 hover:bg-red-100 px-2.5 py-1 rounded-lg border border-red-200 dark:border-red-800 transition shrink-0"
+                              >
+                                طرد من هذه المحاضرة ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => { setExpelModalStudent(null); setExpelModalCourses([]); setError(""); setNotice(""); }}
+                className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-extrabold py-2.5 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition text-xs"
+              >
+                إغلاق
               </button>
             </div>
           </div>

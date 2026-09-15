@@ -3,23 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Phone, Check, X, ShieldAlert, UserCheck, Loader2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 
-export default function ParentPhoneAlertModal({ autoPrompt = false }) {
-  const { user, updateProfile, refreshProfile } = useAuth();
-
-  // ONLY show for students who do NOT have a parent phone registered
-  const isStudent = user?.role === "student";
-  const hasParentPhone = Boolean(user?.parentPhone && user.parentPhone.trim().length >= 10);
-
-  const [isOpen, setIsOpen] = useState(autoPrompt);
-  const [parentPhone, setParentPhone] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // If not a student or already has parent phone, render NOTHING at all
-  if (!user || !isStudent || hasParentPhone) {
-    return null;
-  }
+export default function ParentPhoneAlertModal() {
+  return null;
+}
 
   function validate(phone) {
     const digits = String(phone || "").replace(/\D/g, "");
