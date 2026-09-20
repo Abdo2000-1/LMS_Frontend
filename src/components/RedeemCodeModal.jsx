@@ -168,7 +168,7 @@ export default function RedeemCodeModal({ isOpen, onClose, onSuccess }) {
                   setCode(e.target.value);
                   if (error) setError("");
                 }}
-                placeholder="مثال: MINAMOURID100% أو 12 رقم"
+                placeholder="ادخل كود التفعيل..."
                 className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-3.5 text-center font-mono text-base font-black tracking-widest outline-none focus:ring-2 focus:ring-amber-500 uppercase"
               />
             </div>

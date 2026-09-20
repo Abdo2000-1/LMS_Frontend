@@ -51,8 +51,8 @@ export default function StudentPromoCodeCard({ className = "" }) {
     }
   }
 
-  // Only render for logged-in students
-  if (user && user.role !== "student") return null;
+  // Strictly only for students registered in 2nd Secondary
+  if (!user || user.role !== "student" || !isSecondSecStudent) return null;
 
   return (
     <>
@@ -134,7 +134,7 @@ export default function StudentPromoCodeCard({ className = "" }) {
                     setCode(e.target.value);
                     if (error) setError("");
                   }}
-                  placeholder="اكتب كود التفعيل هنا (مثال: MINAMOURID100%)..."
+                  placeholder="ادخل كود التفعيل..."
                   className="w-full rounded-2xl border border-amber-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-sm font-black font-mono tracking-wider outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-500 transition-all text-right uppercase"
                 />
               </div>
