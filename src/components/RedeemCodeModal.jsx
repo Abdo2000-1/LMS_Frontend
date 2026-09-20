@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { KeyRound, CheckCircle2, AlertCircle, X, Sparkles } from "lucide-react";
+import { KeyRound, CheckCircle2, AlertCircle, X, Sparkles, Crown, BookOpen, ArrowLeft } from "lucide-react";
+import { Link } from "react-router-dom";
 import { claimAccessCode } from "../services/accessCodeService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -9,28 +10,39 @@ export default function RedeemCodeModal({ isOpen, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [successData, setSuccessData] = useState(null);
+  const [isMinaPromoSuccess, setIsMinaPromoSuccess] = useState(false);
 
   if (!isOpen) return null;
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const cleanCode = code.replace(/\D/g, "");
-    if (cleanCode.length !== 12) {
-      setError("كود التفعيل يجب أن يتكون من 12 رقمًا exact.");
+    const cleanCode = code.trim();
+    if (!cleanCode) {
+      setError("يرجى إدخال الكود أولاً.");
+      return;
+    }
+
+    const isPromo = cleanCode.toUpperCase() === "MINAMOURID100%";
+    if (!isPromo && (cleanCode.length !== 12 || !/^\d+$/.test(cleanCode))) {
+      setError("كود التفعيل يجب أن يتكون من 12 رقمًا أو برومو كود معتمد.");
       return;
     }
 
     setLoading(true);
     setError("");
     setSuccessData(null);
+    setIsMinaPromoSuccess(false);
 
     try {
       const result = await claimAccessCode({ code: cleanCode });
       setSuccessData(result);
+      if (isPromo) {
+        setIsMinaPromoSuccess(true);
+      }
       await refreshProfile();
       if (onSuccess) onSuccess(result);
     } catch (err) {
-      setError(err.message || "تعذر تفعيل الكود. تأكد من صحة 12 رقمًا.");
+      setError(err.message || "تعذر تفعيل الكود. تأكد من صحة الكود المدخل.");
     } finally {
       setLoading(false);
     }
@@ -40,12 +52,13 @@ export default function RedeemCodeModal({ isOpen, onClose, onSuccess }) {
     setCode("");
     setError("");
     setSuccessData(null);
+    setIsMinaPromoSuccess(false);
     onClose();
   }
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 font-['Cairo',sans-serif]" dir="rtl">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 relative overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 relative overflow-hidden text-center">
         {/* Close Button */}
         <button
           type="button"
@@ -55,8 +68,52 @@ export default function RedeemCodeModal({ isOpen, onClose, onSuccess }) {
           <X size={20} />
         </button>
 
-        {successData ? (
-          <div className="text-center py-4 space-y-4">
+        {isMinaPromoSuccess ? (
+          <div className="py-2 space-y-4">
+            <div className="w-18 h-18 w-16 h-16 rounded-3xl bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 text-slate-950 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/30">
+              <Crown size={34} />
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-300 text-xs font-black">
+              <Sparkles size={13} className="text-amber-600 dark:text-amber-400 animate-pulse" />
+              <span>Full Access 100% — الصف الثاني الثانوي</span>
+            </div>
+
+            <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100">
+              مرحباً بك في منصة الأستاذ مينا موريد! 🎓
+            </h3>
+
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-slate-800/80 border border-amber-200 dark:border-slate-700 text-right space-y-1.5">
+              <p className="text-xs font-black text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                <CheckCircle2 size={16} />
+                تم فتح جميع كورسات الصف الثاني الثانوي بحسابك!
+              </p>
+              <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                أهلاً بك يا بطل. تم تفعيل وصولك الكامل لجميع الشروحات، الفيديوهات، والامتحانات مجاناً.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <Link
+                to="/courses?grade=الصف+الثاني+الثانوي"
+                onClick={handleClose}
+                className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-sm shadow-md transition-all flex items-center justify-center gap-2"
+              >
+                <BookOpen size={16} />
+                <span>تصفح كورساتك الآن</span>
+                <ArrowLeft size={15} />
+              </Link>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="w-full py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        ) : successData ? (
+          <div className="py-4 space-y-4">
             <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-inner">
               <CheckCircle2 size={36} />
             </div>
@@ -84,12 +141,12 @@ export default function RedeemCodeModal({ isOpen, onClose, onSuccess }) {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="text-center space-y-2">
-              <div className="w-14 h-14 rounded-2xl bg-cyan-100 dark:bg-cyan-950/60 text-[#0077B6] dark:text-cyan-400 flex items-center justify-center mx-auto mb-2">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-2">
                 <KeyRound size={28} />
               </div>
               <h3 className="text-xl font-black text-slate-900 dark:text-slate-100">تفعيل كود الوصول</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                ادخل كود التفعيل المكون من 12 رقمًا المطبوع على الكارت للوصول للكورس أو المحاضرات.
+                أدخل كود التفعيل المكون من 12 رقماً أو كود المنصة الترويجي (Promo Code).
               </p>
             </div>
 
@@ -102,22 +159,24 @@ export default function RedeemCodeModal({ isOpen, onClose, onSuccess }) {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-                كود التفعيل (12 رقم):
+                كود التفعيل / البرومو كود:
               </label>
               <input
                 type="text"
-                maxLength={12}
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                placeholder="مثال: 966513011237"
-                className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-3.5 text-center font-mono text-lg font-black tracking-widest outline-none focus:ring-2 focus:ring-[#0077B6]"
+                onChange={(e) => {
+                  setCode(e.target.value);
+                  if (error) setError("");
+                }}
+                placeholder="مثال: MINAMOURID100% أو 12 رقم"
+                className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-3.5 text-center font-mono text-base font-black tracking-widest outline-none focus:ring-2 focus:ring-amber-500 uppercase"
               />
             </div>
 
             <button
               type="submit"
-              disabled={loading || code.length !== 12}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] hover:from-[#005f93] hover:to-[#0090c9] text-white font-black text-sm shadow-lg active:scale-98 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={loading || !code.trim()}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-sm shadow-lg active:scale-98 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? (
                 "جارٍ التفعيل..."

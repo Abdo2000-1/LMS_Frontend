@@ -759,18 +759,26 @@ export function cleanLectureDescription(description = "") {
  * Checks whether the current user has access to a course
  * (either through full enrollment or selective access code / teacher activation).
  */
-export function checkUserHasAccess(courseId, user) {
+export function checkUserHasAccess(courseId, user, courseGrade = "") {
   if (!user || !courseId) return false;
   const targetId = String(courseId).trim().toLowerCase();
 
-  // 1. Check enrolledCourses (case-insensitive)
+  // 1. Check promo master entitlement for 2nd secondary
+  if (Array.isArray(user.enrolledCourses) && user.enrolledCourses.some((id) => String(id || "").toUpperCase() === "PROMO_MINAMOURID100%")) {
+    const g = String(courseGrade || "").toLowerCase();
+    if (g.includes("ثاني") || g.includes("ثانية")) {
+      return true;
+    }
+  }
+
+  // 2. Check enrolledCourses (case-insensitive)
   if (Array.isArray(user.enrolledCourses)) {
     if (user.enrolledCourses.some((id) => String(id || "").trim().toLowerCase() === targetId)) {
       return true;
     }
   }
 
-  // 2. Check allowedUnits (either by course key or inner lecture id)
+  // 3. Check allowedUnits (either by course key or inner lecture id)
   if (user.allowedUnits && typeof user.allowedUnits === "object") {
     for (const [key, val] of Object.entries(user.allowedUnits)) {
       const keyNorm = String(key || "").trim().toLowerCase();

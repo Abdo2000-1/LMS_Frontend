@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { subscribeCourses, checkUserHasAccess } from "../services/courseService.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import RedeemCodeModal from "../components/RedeemCodeModal.jsx";
+import StudentPromoCodeCard from "../components/StudentPromoCodeCard.jsx";
 
 function formatNumber(value) {
   return new Intl.NumberFormat("ar-EG").format(Number(value || 0));
@@ -30,7 +31,7 @@ export default function Dashboard() {
   }, [refreshProfile]);
 
   const enrolledCourses = useMemo(() => {
-    return courses.filter((course) => checkUserHasAccess(course.id, user));
+    return courses.filter((course) => checkUserHasAccess(course.id, user, course.grade));
   }, [courses, user?.enrolledCourses, user?.allowedUnits]);
 
   const orderedProgressEntries = useMemo(() => {
@@ -144,6 +145,9 @@ export default function Dashboard() {
             </div>
           </div>
         </section>
+ 
+        {/* Student Promo / Access Code Box */}
+        <StudentPromoCodeCard />
 
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {stats.map((item, index) => {

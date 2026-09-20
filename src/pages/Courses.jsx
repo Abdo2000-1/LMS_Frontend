@@ -265,7 +265,7 @@ export default function Courses() {
 
             <motion.div initial="hidden" animate="show" variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {visibleStandaloneLectures.map((lecture) => {
-                const isPurchased = checkUserHasAccess(lecture.id, user);
+                const isPurchased = checkUserHasAccess(lecture.id, user, lecture.grade);
                 const finalPrice = getFinalPrice(lecture);
                 const hasAccess = isPurchased || isTeacher || finalPrice === 0;
                 const aud = parseLectureAudience(lecture.description);
@@ -423,7 +423,7 @@ export default function Courses() {
 
           <motion.div initial="hidden" animate="show" variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {fullCourses.map((course) => {
-              const isPurchased = checkUserHasAccess(course.id, user);
+              const isPurchased = checkUserHasAccess(course.id, user, course.grade);
               const finalPrice = getFinalPrice(course);
               const hasAccess = isPurchased || isTeacher || finalPrice === 0;
               return (

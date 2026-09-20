@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import AppHeader from "../components/AppHeader.jsx";
 import Footer from "../components/Footer.jsx";
+import StudentPromoCodeCard from "../components/StudentPromoCodeCard.jsx";
 
 export default function Profile() {
   const { user, logout, updateProfile } = useAuth();
@@ -230,6 +231,11 @@ export default function Profile() {
             </div>
           </form>
         </motion.div>
+
+        {/* Student Promo / Access Code Box */}
+        <div className="mt-8">
+          <StudentPromoCodeCard />
+        </div>
       </main>
 
       <Footer />
