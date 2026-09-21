@@ -33,6 +33,10 @@ import {
   ChevronUp,
   ChevronDown,
   Loader2,
+  BarChart3,
+  PlayCircle,
+  Award,
+  Eye,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -141,6 +145,15 @@ export default function TeacherDashboard() {
   const [isBusy, setIsBusy] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [editingStandaloneLecture, setEditingStandaloneLecture] = useState(null);
+  const [studentDetailSearch, setStudentDetailSearch] = useState("");
+  const [expandedCourseVideos, setExpandedCourseVideos] = useState({});
+
+  const toggleCourseVideos = (courseId) => {
+    setExpandedCourseVideos((prev) => ({
+      ...prev,
+      [courseId]: !prev[courseId],
+    }));
+  };
 
   function copyToClipboard(text, id) {
     if (!text) return;
@@ -1678,10 +1691,15 @@ export default function TeacherDashboard() {
                         <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
-                            onClick={() => setSelectedStudentId(s.uid)}
-                            className="text-xs bg-[#0077B6] text-white font-extrabold px-3.5 py-1.5 rounded-xl hover:bg-[#005f92] transition shadow-sm"
+                            onClick={() => {
+                              setSelectedStudentId(s.uid);
+                              setActiveTab("student-details");
+                            }}
+                            className="text-xs bg-[#0077B6] text-white font-extrabold px-3.5 py-1.5 rounded-xl hover:bg-[#005f92] transition shadow-sm flex items-center gap-1"
+                            title="عرض التقرير التفصيلي ومتابعة تقدم الطالب"
                           >
-                            تحديد
+                            <BarChart3 size={12} />
+                            متابعة التقدم
                           </button>
                           <button
                             type="button"
@@ -1792,15 +1810,43 @@ export default function TeacherDashboard() {
                   استخراج شيت إكسيل لبيانات الطلاب
                 </button>
 
-                {/* Select student to review */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-500">الطالب:</span>
+                {/* Search & Select student to review */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:border-[#0077B6] focus-within:bg-white transition">
+                    <Search size={13} className="text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="بحث سريع عن طالب..."
+                      value={studentDetailSearch}
+                      onChange={(e) => setStudentDetailSearch(e.target.value)}
+                      className="bg-transparent text-xs font-bold outline-none w-36 sm:w-48 text-slate-800 placeholder:text-slate-400"
+                    />
+                    {studentDetailSearch && (
+                      <button type="button" onClick={() => setStudentDetailSearch("")} className="text-slate-400 hover:text-slate-600">
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+
                   <select
                     value={selectedStudentId}
                     onChange={(e) => setSelectedStudentId(e.target.value)}
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-extrabold outline-none bg-slate-50 focus:border-[#0077B6]"
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-extrabold outline-none bg-slate-50 focus:border-[#0077B6] max-w-[240px]"
                   >
-                    {students.filter(s => !isCodeStudent(s)).map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.phone})</option>)}
+                    {students
+                      .filter(
+                        (s) =>
+                          !isCodeStudent(s) &&
+                          (studentDetailSearch.trim() === "" ||
+                            (s.name || "").toLowerCase().includes(studentDetailSearch.toLowerCase()) ||
+                            (s.phone || "").includes(studentDetailSearch) ||
+                            (s.studentId || "").toLowerCase().includes(studentDetailSearch.toLowerCase()))
+                      )
+                      .map((s) => (
+                        <option key={s.uid} value={s.uid}>
+                          {s.name} ({s.phone || s.studentId})
+                        </option>
+                      ))}
                   </select>
                 </div>
               </div>
@@ -1924,36 +1970,212 @@ export default function TeacherDashboard() {
                   </div>
                 )}
 
-                {/* Purchased Courses Tracker */}
-                <div>
-                  <h3 className="font-black text-base text-slate-900 mb-3">نسبة مشاهدة الكورسات وتتبع الدروس</h3>
-                  <div className="space-y-3">
-                    {selectedStudentDetail.courseProgress && selectedStudentDetail.courseProgress.map((cp) => (
-                      <div key={cp.courseId} className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-                        <div className="flex justify-between items-center text-sm font-extrabold gap-2">
-                          <span className="text-slate-900 truncate">{cp.courseTitle}</span>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <span className="text-[#0077B6]">{cp.percentage}%</span>
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => handleRevokeStudentCourse(cp.courseId, cp.courseTitle)}
-                              className="inline-flex items-center gap-1.5 text-xs bg-red-50 hover:bg-red-100 text-red-600 font-extrabold px-3 py-1 rounded-xl border border-red-200 transition disabled:opacity-50"
-                              title="طرد الطالب من هذا الكورس وسحب اشتراكه نهائياً"
-                            >
-                              <UserX size={12} />
-                              طرد من الكورس
-                            </button>
+                {/* Purchased Courses Tracker & Detailed Video Progress */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
+                      <BookOpen className="text-[#0077B6]" size={20} />
+                      الكورسات المشترك بها ونسب المشاهدة الدقيقة
+                      <span className="text-xs font-bold text-slate-400">
+                        ({selectedStudentDetail.courseProgress?.length || 0} كورس)
+                      </span>
+                    </h3>
+                  </div>
+
+                  <div className="space-y-4">
+                    {selectedStudentDetail.courseProgress && selectedStudentDetail.courseProgress.map((cp) => {
+                      const isExpanded = expandedCourseVideos[cp.courseId] !== false;
+                      const totalVideosCount = cp.videos?.length || 0;
+                      const completedVideosCount = cp.videos?.filter((v) => v.isCompleted || v.percentage >= 90).length || 0;
+
+                      return (
+                        <div key={cp.courseId} className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden transition">
+                          {/* Course Card Header */}
+                          <div className="p-5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div className="space-y-2 flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-base font-black text-slate-900 truncate">
+                                  {cp.courseTitle}
+                                </h4>
+                                <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+                                  cp.isSelective 
+                                    ? "bg-amber-50 text-amber-700 border-amber-200" 
+                                    : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                }`}>
+                                  {cp.isSelective ? "محاضرات محددة" : "كورس كامل"}
+                                </span>
+                                <span className="text-[11px] font-bold text-slate-400">
+                                  انضم: {formatDate(cp.enrolledAt)}
+                                </span>
+                              </div>
+
+                              {/* Course Overall Progress Bar */}
+                              <div className="flex items-center gap-3 pt-1">
+                                <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                                  <div 
+                                    className={`h-3 rounded-full transition-all duration-500 ${
+                                      cp.percentage >= 90 
+                                        ? "bg-emerald-500" 
+                                        : cp.percentage >= 50 
+                                        ? "bg-[#00A8E8]" 
+                                        : "bg-amber-500"
+                                    }`} 
+                                    style={{ width: `${cp.percentage}%` }} 
+                                  />
+                                </div>
+                                <span className="text-sm font-black text-[#0077B6] shrink-0 min-w-[3rem] text-left">
+                                  {cp.percentage}%
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500 font-bold">
+                                أكمل الطالب <span className="text-slate-900 font-black">{completedVideosCount}</span> من أصل <span className="text-slate-900 font-black">{totalVideosCount}</span> فيديو
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                              <button
+                                type="button"
+                                onClick={() => toggleCourseVideos(cp.courseId)}
+                                className="inline-flex items-center gap-1.5 text-xs bg-cyan-50 hover:bg-cyan-100 text-[#0077B6] font-extrabold px-3.5 py-2 rounded-xl border border-cyan-200 transition"
+                              >
+                                {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                {isExpanded ? "إخفاء تفاصيل الفيديوهات" : `عرض الفيديوهات (${totalVideosCount})`}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleRevokeStudentCourse(cp.courseId, cp.courseTitle)}
+                                className="inline-flex items-center gap-1 text-xs bg-red-50 hover:bg-red-100 text-red-600 font-extrabold px-3 py-2 rounded-xl border border-red-200 transition disabled:opacity-50"
+                                title="طرد الطالب من هذا الكورس وسحب اشتراكه نهائياً"
+                              >
+                                <UserX size={13} />
+                                طرد من الكورس
+                              </button>
+                            </div>
                           </div>
+
+                          {/* Video-by-Video Breakdown List */}
+                          {isExpanded && (
+                            <div className="p-4 bg-slate-50/50 space-y-3">
+                              <h5 className="text-xs font-black text-slate-600 flex items-center gap-1.5">
+                                <PlayCircle size={14} className="text-[#0077B6]" />
+                                سجل مشاهدة فيديوهات الكورس بالتفصيل:
+                              </h5>
+
+                              {cp.videos && cp.videos.length > 0 ? (
+                                <div className="grid grid-cols-1 gap-2.5">
+                                  {cp.videos.map((vid, vIdx) => {
+                                    const isVidCompleted = vid.isCompleted || vid.percentage >= 90;
+                                    const isStarted = vid.percentage > 0;
+                                    
+                                    return (
+                                      <div 
+                                        key={vid.unitId || vIdx}
+                                        className="bg-white p-3.5 rounded-xl border border-slate-200/80 hover:border-cyan-300 transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs"
+                                      >
+                                        <div className="space-y-1.5 flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-black text-[10px] flex items-center justify-center shrink-0">
+                                              {vIdx + 1}
+                                            </span>
+                                            <span className="font-extrabold text-slate-900 text-sm truncate">
+                                              {vid.title}
+                                            </span>
+                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                                              isVidCompleted 
+                                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
+                                                : isStarted 
+                                                ? "bg-blue-50 text-blue-700 border border-blue-200" 
+                                                : "bg-slate-100 text-slate-500 border border-slate-200"
+                                            }`}>
+                                              {isVidCompleted ? "✓ مكتمل" : isStarted ? "قيد المتابعة" : "لم يبدأ بعد"}
+                                            </span>
+                                          </div>
+
+                                          {/* Progress bar for video */}
+                                          <div className="flex items-center gap-3">
+                                            <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                                              <div 
+                                                className={`h-2 rounded-full transition-all ${
+                                                  isVidCompleted 
+                                                    ? "bg-emerald-500" 
+                                                    : isStarted 
+                                                    ? "bg-[#0077B6]" 
+                                                    : "bg-slate-300"
+                                                }`} 
+                                                style={{ width: `${vid.percentage}%` }} 
+                                              />
+                                            </div>
+                                            <span className={`text-xs font-black shrink-0 ${
+                                              isVidCompleted ? "text-emerald-600" : isStarted ? "text-[#0077B6]" : "text-slate-400"
+                                            }`}>
+                                              {vid.percentage}%
+                                            </span>
+                                          </div>
+
+                                          {/* Video statistics */}
+                                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 font-bold">
+                                            <span>
+                                              ⏱ آخر موضع وصل إليه: <strong className="text-slate-800" dir="ltr">{formatDuration(vid.lastPosition)}</strong>
+                                              {vid.duration > 0 && <span> / <span dir="ltr">{formatDuration(vid.duration)}</span></span>}
+                                            </span>
+                                            <span>
+                                              👁 شاهد فعلياً: <strong className="text-slate-800" dir="ltr">{formatDuration(vid.watchedSeconds)}</strong>
+                                            </span>
+                                            <span>
+                                              📅 آخر مشاهدة: <strong className="text-slate-700">{formatDate(vid.lastWatchedAt)}</strong>
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-400 font-bold py-2 text-center">
+                                  لا توجد فيديوهات مسجلة في هذا الكورس.
+                                </p>
+                              )}
+
+                              {/* Course exams if any */}
+                              {cp.exams && cp.exams.length > 0 && (
+                                <div className="pt-3 border-t border-slate-200/70 space-y-2">
+                                  <h6 className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                                    <Award size={14} className="text-amber-500" />
+                                    امتحانات وكويزات هذا الكورس:
+                                  </h6>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {cp.exams.map((ex, exIdx) => (
+                                      <div key={exIdx} className="bg-white p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                                        <div className="space-y-0.5 min-w-0 flex-1">
+                                          <p className="font-extrabold text-slate-900 truncate">{ex.quizTitle}</p>
+                                          <p className="text-[10px] text-slate-400">
+                                            الزمن: <span dir="ltr">{formatDuration(ex.timeSpentSeconds)}</span> · {formatDate(ex.takenAt)}
+                                          </p>
+                                        </div>
+                                        <div className="text-left shrink-0 mr-2">
+                                          <p className="font-black text-slate-900">{ex.earnedPoints} / {ex.totalPoints}</p>
+                                          <span className={`text-[10px] font-black px-2 py-0.2 rounded-full ${
+                                            ex.percentage < 50 ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
+                                          }`}>
+                                            {ex.percentage}%
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div className="w-full bg-slate-100 rounded-full h-3">
-                          <div className="bg-[#00A8E8] h-3 rounded-full" style={{ width: `${cp.percentage}%` }} />
-                        </div>
-                        <p className="text-xs text-slate-400 font-bold">عدد الفيديوهات التي شاهدها: {cp.watchedLessonsCount} درس</p>
-                      </div>
-                    ))}
+                      );
+                    })}
+
                     {(!selectedStudentDetail.courseProgress || selectedStudentDetail.courseProgress.length === 0) && (
-                      <p className="text-xs text-slate-500">الطالب غير مشترك في أي كورسات حتى الآن.</p>
+                      <div className="p-8 rounded-2xl border border-dashed border-slate-200 text-center text-slate-400 font-bold text-xs">
+                        الطالب غير مشترك في أي كورسات حتى الآن.
+                      </div>
                     )}
                   </div>
                 </div>

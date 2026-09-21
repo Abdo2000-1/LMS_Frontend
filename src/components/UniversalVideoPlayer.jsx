@@ -1,9 +1,38 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
+import { recordVideoProgress } from "../services/courseService.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5102";
 const ARCHIVE_METADATA_BASE = "https://archive.org/metadata/";
+
+function mergeClientIntervals(intervals, maxDuration) {
+  if (!Array.isArray(intervals) || intervals.length === 0) return [];
+  const valid = intervals
+    .filter((i) => Array.isArray(i) && i.length >= 2 && i[1] > i[0] && i[0] >= 0)
+    .map((i) => [
+      Math.max(0, Math.round(i[0] * 10) / 10),
+      maxDuration > 0 ? Math.min(maxDuration, Math.round(i[1] * 10) / 10) : Math.round(i[1] * 10) / 10,
+    ])
+    .filter((i) => i[1] > i[0])
+    .sort((a, b) => a[0] - b[0]);
+
+  if (valid.length === 0) return [];
+  const merged = [];
+  let current = [valid[0][0], valid[0][1]];
+
+  for (let i = 1; i < valid.length; i++) {
+    const next = valid[i];
+    if (next[0] <= current[1] + 1.5) {
+      current[1] = Math.max(current[1], next[1]);
+    } else {
+      merged.push(current);
+      current = [next[0], next[1]];
+    }
+  }
+  merged.push(current);
+  return merged;
+}
 
 function getYouTubeId(value) {
   const raw = String(value || "").trim();
@@ -211,13 +240,85 @@ async function resolveSource(src, type, options = {}) {
   return { kind: "direct", value: absolute };
 }
 
-export default function UniversalVideoPlayer({ src, type = "auto", title, studentId, courseId, token, onEnded }) {
+export default function UniversalVideoPlayer({
+  src,
+  type = "auto",
+  title,
+  studentId,
+  courseId,
+  unitId,
+  initialPosition = 0,
+  initialIntervals = [],
+  token,
+  onEnded,
+  onProgressUpdate,
+}) {
   const videoRef = useRef(null);
   const embedRef = useRef(null);
   const playerRef = useRef(null);
   const [error, setError] = useState("");
   const [resolved, setResolved] = useState({ kind: "empty", value: "" });
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const lastTimeRef = useRef(null);
+  const currentIntervalStartRef = useRef(null);
+  const intervalsRef = useRef(Array.isArray(initialIntervals) ? [...initialIntervals] : []);
+  const lastSyncTimeRef = useRef(Date.now());
+  const isSyncingRef = useRef(false);
+  const hasResumedRef = useRef(false);
+
+  useEffect(() => {
+    if (Array.isArray(initialIntervals) && initialIntervals.length > 0 && intervalsRef.current.length === 0) {
+      intervalsRef.current = [...initialIntervals];
+    }
+  }, [initialIntervals]);
+
+  const flushInterval = useCallback(() => {
+    if (
+      currentIntervalStartRef.current !== null &&
+      lastTimeRef.current !== null &&
+      lastTimeRef.current > currentIntervalStartRef.current + 0.5
+    ) {
+      intervalsRef.current.push([currentIntervalStartRef.current, lastTimeRef.current]);
+      const duration = playerRef.current?.duration || 0;
+      intervalsRef.current = mergeClientIntervals(intervalsRef.current, duration);
+      currentIntervalStartRef.current = lastTimeRef.current;
+    }
+  }, []);
+
+  const syncProgress = useCallback(
+    async (isCompleted = false) => {
+      if (!courseId || !unitId || isSyncingRef.current) return;
+      flushInterval();
+
+      const player = playerRef.current;
+      const duration = Number(player?.duration || 0);
+      const currentTime = Number(player?.currentTime ?? (lastTimeRef.current || 0));
+      const intervals = intervalsRef.current;
+
+      isSyncingRef.current = true;
+      lastSyncTimeRef.current = Date.now();
+
+      try {
+        const result = await recordVideoProgress({
+          courseId,
+          unitId,
+          duration,
+          currentTime,
+          intervals,
+          isCompleted,
+        });
+        if (result && onProgressUpdate) {
+          onProgressUpdate(result);
+        }
+      } catch (err) {
+        console.warn("[UniversalVideoPlayer] syncProgress error:", err);
+      } finally {
+        isSyncingRef.current = false;
+      }
+    },
+    [courseId, unitId, flushInterval, onProgressUpdate]
+  );
 
   useEffect(() => {
     let active = true;
@@ -285,9 +386,63 @@ export default function UniversalVideoPlayer({ src, type = "auto", title, studen
         },
       });
 
-      if (onEnded) {
-        player.on("ended", onEnded);
-      }
+      const tryResume = () => {
+        if (!hasResumedRef.current && initialPosition > 3) {
+          try {
+            player.currentTime = initialPosition;
+            hasResumedRef.current = true;
+          } catch (e) {
+            console.warn("[UniversalVideoPlayer] resume failed:", e);
+          }
+        }
+      };
+
+      player.on("ready", tryResume);
+      player.on("playing", tryResume);
+
+      player.on("timeupdate", () => {
+        const time = Number(player.currentTime || 0);
+        if (currentIntervalStartRef.current === null || lastTimeRef.current === null) {
+          currentIntervalStartRef.current = time;
+          lastTimeRef.current = time;
+          return;
+        }
+
+        const diff = time - lastTimeRef.current;
+        // User seeked forward or backward
+        if (diff < -0.5 || diff > 2.5) {
+          flushInterval();
+          currentIntervalStartRef.current = time;
+          lastTimeRef.current = time;
+        } else {
+          lastTimeRef.current = time;
+        }
+
+        // Periodic sync every 10s while watching
+        if (Date.now() - lastSyncTimeRef.current >= 10000) {
+          syncProgress(false);
+        }
+      });
+
+      player.on("seeking", () => {
+        flushInterval();
+      });
+
+      player.on("seeked", () => {
+        const time = Number(player.currentTime || 0);
+        currentIntervalStartRef.current = time;
+        lastTimeRef.current = time;
+      });
+
+      player.on("pause", () => {
+        syncProgress(false);
+      });
+
+      player.on("ended", () => {
+        syncProgress(true);
+        if (onEnded) onEnded();
+      });
+
       player.on("enterfullscreen", () => setIsFullscreen(true));
       player.on("exitfullscreen", () => setIsFullscreen(false));
 
@@ -295,6 +450,7 @@ export default function UniversalVideoPlayer({ src, type = "auto", title, studen
 
       return () => {
         try {
+          syncProgress(false);
           player.destroy();
         } catch (destroyError) {
           console.warn("[UniversalVideoPlayer] destroy failed:", destroyError);
@@ -307,7 +463,51 @@ export default function UniversalVideoPlayer({ src, type = "auto", title, studen
       setError(initError?.message || "Failed to initialize player.");
       return undefined;
     }
-  }, [resolved.kind, resolved.value, onEnded]);
+  }, [resolved.kind, resolved.value, onEnded, initialPosition, flushInterval, syncProgress]);
+
+  // Handle page unload / navigation away to persist progress
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (!courseId || !unitId) return;
+      flushInterval();
+
+      const duration = Number(playerRef.current?.duration || 0);
+      const currentTime = Number(playerRef.current?.currentTime ?? (lastTimeRef.current || 0));
+      const payload = JSON.stringify({
+        unitId,
+        duration,
+        currentTime,
+        intervals: intervalsRef.current,
+        isCompleted: false,
+      });
+
+      const authToken = localStorage.getItem("lms_access_token") || token;
+      const url = `${API_BASE_URL}/api/courses/${courseId}/progress/video`;
+
+      try {
+        if (navigator.sendBeacon) {
+          const blob = new Blob([payload], { type: "application/json" });
+          navigator.sendBeacon(url, blob);
+        } else {
+          fetch(url, {
+            method: "POST",
+            body: payload,
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authToken ? `Bearer ${authToken}` : "",
+            },
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } catch {}
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      handleBeforeUnload();
+    };
+  }, [courseId, unitId, token, flushInterval]);
 
   if (!src) {
     return (
@@ -362,6 +562,16 @@ export default function UniversalVideoPlayer({ src, type = "auto", title, studen
             preload="metadata"
           />
         )}
+
+        {/* Dynamic student watermark */}
+        {studentId && (
+          <div
+            className="pointer-events-none absolute z-[50] select-none text-white/20 text-xs font-bold tracking-widest"
+            style={{ top: "25%", left: "30%" }}
+          >
+            {studentId}
+          </div>
+        )}
       </div>
       {title && (
         <div className="border-t border-white/10 bg-black/40 px-4 py-2 text-right text-[11px] font-bold text-white/70">
@@ -371,3 +581,4 @@ export default function UniversalVideoPlayer({ src, type = "auto", title, studen
     </div>
   );
 }
+

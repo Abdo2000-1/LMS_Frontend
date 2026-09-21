@@ -7,10 +7,15 @@ export default function StudentVideoPlayer({
   fileId,
   youtubeVideoId,
   courseId,
+  unitId,
+  title,
+  initialPosition = 0,
+  initialIntervals = [],
   videoUrl,
   studentId,
   token,
   onEnded,
+  onProgressUpdate,
   hasAccess = true,
   isFree = false,
   isTeacher = false,
@@ -38,10 +43,15 @@ export default function StudentVideoPlayer({
       <UniversalVideoPlayer
         src={src}
         videoId={fileId}
+        unitId={unitId}
+        title={title}
+        initialPosition={initialPosition}
+        initialIntervals={initialIntervals}
         token={token}
         courseId={courseId}
         studentId={studentId}
         onEnded={onEnded}
+        onProgressUpdate={onProgressUpdate}
       />
     </PlayerErrorBoundary>
   );

@@ -108,6 +108,10 @@ export default function CourseDetails() {
     () => user?.progress?.[courseId]?.watchedLessons || [],
     [user?.progress, courseId]
   );
+  const courseVideoProgress = useMemo(
+    () => user?.progress?.[courseId]?.videoProgress || {},
+    [user?.progress, courseId]
+  );
   const enrolled = useMemo(() => {
     const cId = String(courseId || "").trim().toLowerCase();
     return (user?.enrolledCourses || []).some((id) => String(id || "").trim().toLowerCase() === cId);
@@ -463,40 +467,28 @@ export default function CourseDetails() {
         {/* ═══ MAIN VIDEO PLAYER — FULL WIDTH ═══════════════════ */}
         <section className="rounded-[1.75rem] overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl shadow-slate-900/5">
           {selectedContent?.type === "video" && selectedUnit && selectedUnlocked ? (
-            true ? (
-              <StudentVideoPlayer
-                key={`video-${selectedUnit.unitId || selectedContentIndex}`}
-                fileId={selectedUnit.driveFileId}
-                youtubeVideoId={selectedUnit.youtubeVideoId}
-                videoUrl={selectedUnit.videoUrl}
-                courseId={courseId}
-                token={localStorage.getItem("lms_access_token") || ""}
-                studentId={user?.studentId || user?.uid || user?.phone || ""}
-                onEnded={completeLesson}
-                hasAccess={hasAccess}
-                isFree={Boolean(isFree || selectedUnit.isFree)}
-                isTeacher={isTeacher}
-              />
-            ) : (
-              <div className="relative pb-[56.25%] h-0 overflow-hidden bg-black">
-                <iframe
-                  id="course-video-player"
-                  title={selectedUnit.title}
-                  src={`https://www.youtube-nocookie.com/embed/${selectedUnit.youtubeVideoId}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
-                  className="absolute inset-0 h-full w-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  allowFullScreen
-                />
-                {/* Watermark */}
-                <div
-                  className="absolute pointer-events-none z-[45] select-none text-white/25 text-xs font-extrabold"
-                  style={{ top: "30%", left: "38%" }}
-                >
-                  {user?.phone} · {user?.name}
-                </div>
-              </div>
-            )
+            <StudentVideoPlayer
+              key={`video-${selectedUnit.unitId || selectedContentIndex}`}
+              fileId={selectedUnit.driveFileId}
+              youtubeVideoId={selectedUnit.youtubeVideoId}
+              videoUrl={selectedUnit.videoUrl}
+              unitId={selectedUnit.unitId}
+              title={selectedUnit.title}
+              initialPosition={courseVideoProgress[selectedUnit.unitId]?.lastPosition || 0}
+              initialIntervals={courseVideoProgress[selectedUnit.unitId]?.watchedIntervals || []}
+              courseId={courseId}
+              token={localStorage.getItem("lms_access_token") || ""}
+              studentId={user?.studentId || user?.uid || user?.phone || ""}
+              onEnded={completeLesson}
+              onProgressUpdate={(prog) => {
+                if (prog?.isCompleted && !watchedLessons.includes(selectedUnit.unitId)) {
+                  refreshProfile?.();
+                }
+              }}
+              hasAccess={hasAccess}
+              isFree={Boolean(isFree || selectedUnit.isFree)}
+              isTeacher={isTeacher}
+            />
           ) : selectedContent?.type === "resource" && selectedUnlocked ? (
             <div className="min-h-[300px] flex flex-col items-center justify-center gap-5 p-10 text-center">
               <div className="w-16 h-16 rounded-2xl bg-cyan-100 dark:bg-slate-800 flex items-center justify-center">
@@ -674,6 +666,11 @@ export default function CourseDetails() {
                             ? `كويز${item.isMandatory ? " (إجباري)" : ""}`
                             : `فيديو ${unitIndex + 1}`}
                         </span>
+                        {item.type === "video" && (courseVideoProgress[item.unitId]?.percentage || (watched ? 100 : 0)) > 0 && (
+                          <span className="text-[10px] font-black text-[#0077B6] dark:text-[#00A8E8] bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-800 px-1.5 py-0.2 rounded-full">
+                            {courseVideoProgress[item.unitId]?.percentage || (watched ? 100 : 0)}%
+                          </span>
+                        )}
                         {item.isFree && (
                           <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 rounded-full">
                             مجاني

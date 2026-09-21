@@ -535,6 +535,23 @@ export async function markLessonCompleted({ uid, courseId, unitId, totalUnits })
   }
 }
 
+export async function recordVideoProgress({ courseId, unitId, duration, currentTime, intervals, isCompleted }) {
+  if (!courseId || !unitId) return null;
+  try {
+    const { data } = await apiClient.post(`/api/courses/${courseId}/progress/video`, {
+      unitId,
+      duration: Number(duration || 0),
+      currentTime: Number(currentTime || 0),
+      intervals: Array.isArray(intervals) ? intervals : [],
+      isCompleted: Boolean(isCompleted),
+    }, requestConfig);
+    return data;
+  } catch (error) {
+    console.warn("[courseService] recordVideoProgress failed:", error);
+    return null;
+  }
+}
+
 // ─── Quiz Attempts ──────────────────────────────────────────────
 
 export async function submitQuizAttempt({ uid, courseId, quiz, timeSpentSeconds = 0 }) {
