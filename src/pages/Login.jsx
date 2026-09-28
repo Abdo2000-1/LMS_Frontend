@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Phone, Lock, Eye, EyeOff, Languages, ArrowLeft, Loader2, CheckCircle2, FlaskConical, Atom, Beaker, Dna } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
+import { normalizeDigits, normalizePhone } from "../lib/authService.js";
 
 const molecules = [
   { Icon: FlaskConical, top: "15%", left: "10%", size: 28, delay: 0, duration: 7 },
@@ -66,20 +67,21 @@ export default function Login() {
 
   function validate(values) {
     const errs = {};
-    const digits = values.phone.replace(/\D/g, "");
+    const digits = normalizePhone(values.phone);
 
     if (!digits) errs.phone = "من فضلك اكتب رقم الموبايل";
-    else if (digits.length < 11) errs.phone = "رقم الموبايل غير صحيح";
+    else if (digits.length < 11 && digits.length !== 12) errs.phone = "رقم الموبايل غير صحيح";
 
     if (!values.password) errs.password = "من فضلك اكتب كلمة المرور";
-    else if (values.password.length < 8) errs.password = "كلمة المرور لازم تكون ٨ أحرف على الأقل";
+    else if (values.password.trim().length < 4) errs.password = "كلمة المرور قصيرة جداً";
 
     return errs;
   }
 
   function handleChange(e) {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    const finalVal = name === "phone" ? normalizeDigits(value) : value;
+    setForm((prev) => ({ ...prev, [name]: finalVal }));
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: undefined }));
     if (serverError) setServerError("");
   }
@@ -93,7 +95,9 @@ export default function Login() {
     setIsSubmitting(true);
     setServerError("");
     try {
-      const userObj = await login({ phone: form.phone, password: form.password });
+      const cleanPhone = normalizePhone(form.phone);
+      const cleanPassword = normalizeDigits(form.password.trim());
+      const userObj = await login({ phone: cleanPhone, password: cleanPassword });
       const roleHome = getLandingRouteByRole(userObj?.role);
       const fromPath = location.state?.from?.pathname;
       const target = fromPath && fromPath !== "/login" ? fromPath : roleHome;

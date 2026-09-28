@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
-import { GOVERNORATE_OPTIONS, STUDENT_GRADES } from "../lib/authService.js";
+import { GOVERNORATE_OPTIONS, STUDENT_GRADES, normalizeDigits, normalizePhone } from "../lib/authService.js";
 
 function MoleculeCluster() {
   return (
@@ -117,8 +117,8 @@ export default function Register() {
 
     // 3. Phone validation
     const egPhoneRegex = /^01[0125][0-9]{8}$/;
-    const phoneDigits = values.phone.replace(/\D/g, "");
-    const parentPhoneDigits = (values.parentPhone || "").replace(/\D/g, "");
+    const phoneDigits = normalizePhone(values.phone);
+    const parentPhoneDigits = normalizePhone(values.parentPhone);
 
     if (!phoneDigits) {
       errs.phone = "اكتب رقم الهاتف الخاص بك";
@@ -166,7 +166,10 @@ export default function Register() {
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target;
-    const nextValue = type === "checkbox" ? checked : value;
+    let nextValue = type === "checkbox" ? checked : value;
+    if (name === "phone" || name === "parentPhone") {
+      nextValue = normalizeDigits(value);
+    }
     setForm((prev) => ({ ...prev, [name]: nextValue }));
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: undefined }));
     if (serverError) setServerError("");
@@ -191,13 +194,13 @@ export default function Register() {
       await register({
         name: fullName,
         email: form.email.trim(),
-        phone: form.phone.trim(),
-        parentPhone: form.parentPhone.trim(),
+        phone: normalizePhone(form.phone),
+        parentPhone: normalizePhone(form.parentPhone),
         center: finalCenter,
         gender: form.gender,
         grade: form.grade,
         governorate: form.governorate,
-        password: form.password,
+        password: normalizeDigits(form.password.trim()),
       });
 
       navigate("/login", { replace: true, state: { registered: true } });

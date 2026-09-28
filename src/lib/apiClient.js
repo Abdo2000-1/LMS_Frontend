@@ -103,9 +103,14 @@ apiClient.interceptors.response.use(
     if (status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
 
+      const requestUrl = String(originalRequest.url || "");
+      const isAuthEndpoint = requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register");
+
       const { refreshToken } = getStoredTokens();
-      if (!refreshToken) {
-        handleSessionExpired();
+      if (!refreshToken || isAuthEndpoint) {
+        if (!isAuthEndpoint) {
+          handleSessionExpired();
+        }
         return Promise.reject(error);
       }
 

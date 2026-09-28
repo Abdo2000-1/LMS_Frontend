@@ -52,8 +52,14 @@ export const GOVERNORATE_OPTIONS = [
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────
+export function normalizeDigits(str) {
+  return String(str || "")
+    .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
+    .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+}
+
 export function normalizePhone(value) {
-  return String(value || "").replace(/\D/g, "");
+  return normalizeDigits(value).replace(/\D/g, "");
 }
 
 function normalizeRole(role) {

@@ -59,6 +59,7 @@ import {
   unblockStudent,
   updateStudentId,
   resetStudentPassword,
+  deleteStudentAccount,
   revokeStudentCourseAccess,
   revokeStudentLectureAccess,
   addLessonToModule
@@ -200,6 +201,22 @@ export default function TeacherDashboard() {
       setError(err?.message || "فشل تغيير كلمة المرور.");
     } finally {
       setIsResettingPwd(false);
+    }
+  }
+
+  async function handleDeleteStudent(s) {
+    const studentUid = s.uid || s.id || s.Uid;
+    const studentName = s.name || s.fullName || "هذا الطالب";
+    if (!window.confirm(`⚠️ تحذير هام:\n\nهل أنت متأكد من حذف حساب الطالب "${studentName}" نهائياً من المنصة؟\n\nسيتم مسح بياناته بالكامل، ويمكنه أو يمكنك إعادة تسجيل حسابه من جديد برقم الهاتف والبريد.`)) {
+      return;
+    }
+
+    try {
+      await deleteStudentAccount(studentUid);
+      setNotice(`تم حذف حساب الطالب "${studentName}" نهائياً بنجاح.`);
+      setStudents((prev) => prev.filter((item) => (item.uid || item.id || item.Uid) !== studentUid));
+    } catch (err) {
+      setError(err?.message || "فشل حذف حساب الطالب.");
     }
   }
 
@@ -1731,6 +1748,14 @@ export default function TeacherDashboard() {
                             title="إعادة تعيين كلمة مرور الطالب"
                           >
                             🔑 تغيير كلمة المرور
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStudent(s)}
+                            className="text-xs bg-rose-600/10 hover:bg-rose-600/20 text-rose-700 dark:text-rose-400 font-extrabold px-3 py-1.5 rounded-xl transition flex items-center gap-1 border border-rose-300 dark:border-rose-800/50"
+                            title="حذف حساب الطالب نهائياً من المنصة"
+                          >
+                            🗑️ حذف الحساب
                           </button>
                         </div>
                       </div>

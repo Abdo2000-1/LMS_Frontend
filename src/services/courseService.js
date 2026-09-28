@@ -672,6 +672,15 @@ export async function resetStudentPassword(uid, newPassword) {
   }
 }
 
+export async function deleteStudentAccount(uid) {
+  try {
+    const { data } = await apiClient.delete(`/api/users/students/${uid}`, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
 export async function revokeStudentCourseAccess(uid, courseId) {
   try {
     const { data } = await apiClient.delete(`/api/users/${uid}/courses/${courseId}`, requestConfig);
