@@ -36,6 +36,25 @@ export function AuthProvider({ children }) {
     return () => setSessionExpiredHandler(null);
   }, []);
 
+  // Heartbeat to detect if another device logged in and revoked this session
+  useEffect(() => {
+    if (!user || user.role !== "student") return;
+
+    const checkSession = () => {
+      if (!document.hidden) {
+        refreshProfileRequest().catch(() => {});
+      }
+    };
+
+    const interval = setInterval(checkSession, 45000);
+    document.addEventListener("visibilitychange", checkSession);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", checkSession);
+    };
+  }, [user?.role, user?.uid]);
+
   async function login(payload) {
     const { user: loggedInUser, token: nextToken } = await loginRequest(payload);
     setUser(loggedInUser);

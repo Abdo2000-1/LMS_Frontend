@@ -70,10 +70,10 @@ function extractApiErrorMessage(error) {
   );
 }
 
-function handleSessionExpired() {
+function handleSessionExpired(customMsg) {
   clearTokens();
   onSessionExpired?.();
-  notifyError("انتهت الجلسة. من فضلك سجّل الدخول مرة أخرى.");
+  notifyError(customMsg || "انتهت الجلسة أو تم تسجيل الدخول من جهاز آخر. من فضلك سجّل الدخول مرة أخرى.");
 }
 
 // ─── Request interceptor — inject Authorization header ──────────
@@ -109,7 +109,8 @@ apiClient.interceptors.response.use(
       const { refreshToken } = getStoredTokens();
       if (!refreshToken || isAuthEndpoint) {
         if (!isAuthEndpoint) {
-          handleSessionExpired();
+          const errMsg = extractApiErrorMessage(error);
+          handleSessionExpired(errMsg);
         }
         return Promise.reject(error);
       }
