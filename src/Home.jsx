@@ -19,6 +19,8 @@ import {
   ArrowLeft,
   ArrowRight,
   LayoutDashboard,
+  LogIn,
+  UserPlus,
   Dna,
   Microscope,
   Radiation,
@@ -241,7 +243,8 @@ export default function Home() {
           ))}
         </div>
         <header className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-3">
-          <nav className="relative w-[96%] max-w-[1500px] bg-chem-deep/60 dark:bg-slate-950/60 backdrop-blur-2xl rounded-2xl border border-white/20 dark:border-chem-light/20 shadow-xl shadow-chem-deep/20 dark:shadow-chem-light/10 px-4 sm:px-6 py-3 flex items-center justify-between gap-4 transition-all duration-500" aria-label="القائمة الرئيسية">
+          <nav className="relative w-[96%] max-w-[1500px] bg-chem-deep/60 dark:bg-slate-950/60 backdrop-blur-2xl rounded-2xl border border-white/20 dark:border-chem-light/20 shadow-xl shadow-chem-deep/20 dark:shadow-chem-light/10 px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4 transition-all duration-500" aria-label="القائمة الرئيسية">
+            {/* Desktop Auth & Search */}
             <div className="hidden md:flex items-center gap-2">
               <button
                 type="button"
@@ -277,14 +280,44 @@ export default function Home() {
                 </>
               )}
             </div>
-            <button
-              type="button"
-              aria-label={menuOpen ? "إغلاق القائمة" : "فتح القائمة"}
-              onClick={() => setMenuOpen((open) => !open)}
-              className="md:hidden flex items-center justify-center w-10 h-10 rounded-full text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-300"
-            >
-              {menuOpen ? <XIcon size={20} /> : <MenuIcon size={20} />}
-            </button>
+
+            {/* Mobile Controls: Hamburger + Quick Direct Auth Buttons */}
+            <div className="flex md:hidden items-center gap-1.5">
+              <button
+                type="button"
+                aria-label={menuOpen ? "إغلاق القائمة" : "فتح القائمة"}
+                onClick={() => setMenuOpen((open) => !open)}
+                className="flex items-center justify-center w-9 h-9 rounded-full text-white/90 hover:bg-white/10 hover:text-white transition-colors duration-300"
+              >
+                {menuOpen ? <XIcon size={20} /> : <MenuIcon size={20} />}
+              </button>
+              {isAuthenticated ? (
+                <Link
+                  to={dashboardPath}
+                  className="inline-flex items-center gap-1 bg-white/15 hover:bg-white/25 border border-white/30 text-white rounded-full px-3 py-1 text-xs font-bold shadow-sm active:scale-95 transition-all"
+                >
+                  <LayoutDashboard size={13} />
+                  <span>لوحتي</span>
+                </Link>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <Link
+                    to="/login"
+                    className="border border-white/40 text-white rounded-full px-2.5 py-1 text-xs font-bold hover:bg-white/10 active:scale-95 transition-all whitespace-nowrap"
+                  >
+                    دخول
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="bg-chem-cta text-white rounded-full px-2.5 py-1 text-xs font-bold shadow-sm hover:bg-chem-cta/90 active:scale-95 transition-all whitespace-nowrap"
+                  >
+                    تسجيل
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* Desktop Nav Links */}
             <div className="hidden lg:flex items-center gap-7">
               {navLinks.map((l) => (
                 <button
@@ -297,14 +330,16 @@ export default function Home() {
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-3">
+
+            {/* Brand Logo & Theme Toggle */}
+            <div className="flex items-center gap-2 sm:gap-3">
               <ThemeToggle />
               <Link
                 to="/"
-                className="flex items-center gap-2 text-xl sm:text-2xl font-extrabold text-white tracking-normal transition-colors duration-500 drop-shadow-md"
+                className="flex items-center gap-1.5 sm:gap-2 text-lg sm:text-2xl font-extrabold text-white tracking-normal transition-colors duration-500 drop-shadow-md"
               >
-                <span>{BRAND_NAME}</span>
-                <img src={logoImage} alt="Mena Mourid" className="h-9 w-9 rounded-full object-cover ring-2 ring-white/30" />
+                <span className="truncate max-w-[125px] sm:max-w-none">{BRAND_NAME}</span>
+                <img src={logoImage} alt="Mena Mourid" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full object-cover ring-2 ring-white/30" />
               </Link>
             </div>
             <div className="absolute bottom-0 right-4 left-4 h-1 overflow-hidden rounded-full bg-white/20">
@@ -316,13 +351,47 @@ export default function Home() {
             </div>
           </nav>
           {menuOpen && (
-            <div className="absolute top-[72px] right-4 left-4 md:hidden rounded-2xl border border-white/20 bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl shadow-xl p-3">
+            <div className="absolute top-[68px] sm:top-[72px] right-4 left-4 md:hidden rounded-2xl border border-white/20 bg-white/95 dark:bg-slate-950/95 backdrop-blur-2xl shadow-2xl p-3.5 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="pb-3 mb-2 border-b border-slate-200/80 dark:border-white/10">
+                {isAuthenticated ? (
+                  <Link
+                    to={dashboardPath}
+                    onClick={() => setMenuOpen(false)}
+                    className="w-full flex items-center justify-center gap-2 bg-chem-deep text-white font-bold py-2.5 px-4 rounded-xl shadow-md active:scale-95 transition-all text-sm"
+                  >
+                    <LayoutDashboard size={18} />
+                    <span>لوحة التحكم (لوحتي)</span>
+                  </Link>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Link
+                      to="/login"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 active:scale-95 transition-all text-sm"
+                    >
+                      <LogIn size={16} className="text-chem-deep dark:text-chem-light" />
+                      <span>تسجيل الدخول</span>
+                    </Link>
+                    <Link
+                      to="/register"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center justify-center gap-2 bg-chem-cta text-white font-bold py-2.5 px-3 rounded-xl shadow-md shadow-chem-cta/20 active:scale-95 transition-all text-sm"
+                    >
+                      <UserPlus size={16} />
+                      <span>حساب جديد</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
               <div className="flex flex-col gap-1">
                 {navLinks.map((l) => (
                   <button
                     key={l.label}
                     type="button"
-                    onClick={() => scrollToSection(l.href)}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      scrollToSection(l.href);
+                    }}
                     className="px-3 py-2 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-chem-light/10 hover:text-chem-light transition-colors duration-200 text-right"
                   >
                     {l.label}
@@ -330,10 +399,14 @@ export default function Home() {
                 ))}
                 <button
                   type="button"
-                  onClick={openSearch}
-                  className="px-3 py-2 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-chem-light/10 hover:text-chem-light transition-colors duration-200 text-right"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openSearch();
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-chem-light/10 hover:text-chem-light transition-colors duration-200 text-right"
                 >
-                  بحث في الكورسات
+                  <Search size={16} />
+                  <span>بحث في الكورسات</span>
                 </button>
               </div>
             </div>
@@ -365,22 +438,53 @@ export default function Home() {
                 <p className="text-lg sm:text-xl text-white/84 max-w-xl leading-relaxed">
                   تجارب عملية، متابعة مستمرة.. وتقفيل المادة من أول مرة!
                 </p>
-                <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
-                  <Link
-                    to={isAuthenticated ? dashboardPath : "/register"}
-                    className="group bg-chem-cta text-white font-extrabold px-8 py-3 rounded-xl shadow-lg shadow-chem-cta/20 hover:bg-chem-cta/90 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-chem-cta/30 transition-all duration-300 active:translate-y-0 active:scale-95 inline-flex items-center gap-2"
-                  >
-                    {isAuthenticated ? "افتح لوحتك" : "ابدأ دلوقتي"}
-                    <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform duration-300" />
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => scrollToSection("#courses")}
-                    className="inline-flex items-center gap-2 border border-white/45 text-white font-extrabold px-8 py-3 rounded-xl hover:bg-white/10 transition-all duration-300 active:scale-95"
-                  >
-                    <BookOpen size={18} />
-                    شوف الكورسات
-                  </button>
+                <div className="flex flex-col sm:flex-row items-center gap-3 pt-2 w-full sm:w-auto">
+                  {isAuthenticated ? (
+                    <>
+                      <Link
+                        to={dashboardPath}
+                        className="w-full sm:w-auto justify-center group bg-chem-cta text-white font-extrabold px-8 py-3.5 rounded-xl shadow-lg shadow-chem-cta/20 hover:bg-chem-cta/90 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-chem-cta/30 transition-all duration-300 active:translate-y-0 active:scale-95 inline-flex items-center gap-2"
+                      >
+                        <span>افتح لوحتك</span>
+                        <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform duration-300" />
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => scrollToSection("#courses")}
+                        className="w-full sm:w-auto justify-center inline-flex items-center gap-2 border border-white/45 text-white font-extrabold px-8 py-3.5 rounded-xl hover:bg-white/10 transition-all duration-300 active:scale-95"
+                      >
+                        <BookOpen size={18} />
+                        <span>شوف الكورسات</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 sm:flex sm:flex-row items-center gap-2.5 w-full sm:w-auto">
+                        <Link
+                          to="/login"
+                          className="group justify-center bg-white/20 hover:bg-white/30 border border-white/50 text-white font-extrabold px-4 sm:px-7 py-3.5 rounded-xl shadow-md backdrop-blur-md hover:-translate-y-0.5 transition-all duration-300 active:scale-95 inline-flex items-center gap-2 text-sm sm:text-base text-center"
+                        >
+                          <LogIn size={18} className="text-chem-cta group-hover:scale-110 transition-transform" />
+                          <span>تسجيل الدخول</span>
+                        </Link>
+                        <Link
+                          to="/register"
+                          className="group justify-center bg-chem-cta text-white font-extrabold px-4 sm:px-7 py-3.5 rounded-xl shadow-lg shadow-chem-cta/25 hover:bg-chem-cta/90 hover:-translate-y-0.5 hover:shadow-xl transition-all duration-300 active:scale-95 inline-flex items-center gap-2 text-sm sm:text-base text-center"
+                        >
+                          <UserPlus size={18} />
+                          <span>حساب جديد</span>
+                        </Link>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => scrollToSection("#courses")}
+                        className="w-full sm:w-auto justify-center inline-flex items-center gap-2 border border-white/40 text-white/95 font-bold px-6 py-3.5 rounded-xl hover:bg-white/15 transition-all duration-300 active:scale-95 text-sm sm:text-base"
+                      >
+                        <BookOpen size={18} />
+                        <span>شوف الكورسات</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </motion.div>
               <motion.div variants={fadeUp} className="order-1 lg:order-2 relative flex justify-center">
