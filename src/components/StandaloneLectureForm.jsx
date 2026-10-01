@@ -84,6 +84,18 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
   const [hasQuiz, setHasQuiz] = useState(Boolean(initialLecture?.quizzes?.length));
   const [quizTitle, setQuizTitle] = useState(initialLecture?.quizzes?.[0]?.title || "كويز على المحاضرة");
   const [quizMinutes, setQuizMinutes] = useState(initialLecture?.quizzes?.[0]?.minutes || 15);
+  const [quizPosition, setQuizPosition] = useState(
+    (() => {
+      const qOrder = initialLecture?.quizzes?.[0]?.order;
+      const uOrder = initialLecture?.units?.[0]?.order;
+      if (qOrder !== undefined && uOrder !== undefined) return qOrder < uOrder ? "before" : "after";
+      if (qOrder === 1) return "before";
+      return "after";
+    })()
+  );
+  const [isQuizMandatory, setIsQuizMandatory] = useState(
+    Boolean(initialLecture?.quizzes?.[0]?.isMandatory)
+  );
   const [questions, setQuestions] = useState(
     initialLecture?.quizzes?.[0]?.questions?.length
       ? initialLecture.quizzes[0].questions.map((q) => ({
@@ -140,6 +152,16 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
       setHasQuiz(true);
       setQuizTitle(qz.title || "كويز على المحاضرة");
       setQuizMinutes(qz.minutes || 15);
+      setIsQuizMandatory(Boolean(qz.isMandatory));
+      const qOrder = qz.order;
+      const uOrder = initialLecture.units?.[0]?.order;
+      if (qOrder !== undefined && uOrder !== undefined) {
+        setQuizPosition(qOrder < uOrder ? "before" : "after");
+      } else if (qOrder === 1) {
+        setQuizPosition("before");
+      } else {
+        setQuizPosition("after");
+      }
       if (qz.questions && qz.questions.length > 0) {
         setQuestions(qz.questions.map(q => ({ ...emptyQuestion(), ...q, choices: q.choices && q.choices.length ? q.choices : ["", "", "", ""] })));
       }
@@ -147,6 +169,8 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
       setHasQuiz(false);
       setQuizTitle("كويز على المحاضرة");
       setQuizMinutes(15);
+      setQuizPosition("after");
+      setIsQuizMandatory(false);
       setQuestions([emptyQuestion()]);
     }
   }, [initialLecture]);
@@ -306,10 +330,15 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
     setSuccess("");
 
     try {
+      const quizOrder = quizPosition === "before" ? 1 : 3;
+      const videoOrder = quizPosition === "before" ? 2 : 1;
+      const pdfOrder = quizPosition === "before" ? 3 : 2;
+
       // Build units
       const units = [
         {
           unitId: initialLecture?.units?.[0]?.unitId || `unit_${Date.now()}`,
+          order: videoOrder,
           title: (videoTitle || title).trim(),
           youtubeVideoId: videoUrl.trim(),
           isFree: isFree,
@@ -322,6 +351,7 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
         ? [
             {
               resourceId: initialLecture?.resources?.[0]?.resourceId || `res_${Date.now()}`,
+              order: pdfOrder,
               title: (pdfTitle || "ملف المحاضرة PDF").trim(),
               fileUrl: pdfUrl.trim(),
               fileName: (pdfTitle || "Lecture.pdf").trim(),
@@ -336,10 +366,11 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
         ? [
             {
               quizId: initialLecture?.quizzes?.[0]?.quizId || `quiz_${Date.now()}`,
+              order: quizOrder,
               title: (quizTitle || "كويز المحاضرة").trim(),
               minutes: Number(quizMinutes || 15),
               questionsCount: questions.filter((q) => q.prompt.trim()).length,
-              isMandatory: false,
+              isMandatory: Boolean(isQuizMandatory),
               questions: questions
                 .filter((q) => q.prompt.trim())
                 .map((q, idx) => ({
@@ -820,6 +851,86 @@ export default function StandaloneLectureForm({ initialLecture = null, onSaved, 
 
           {hasQuiz && (
             <div className="space-y-5 pt-2">
+              {/* Quiz Position & Sequence Selector */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-cyan-500/10 border border-amber-200 dark:border-amber-900/50 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                    <Sparkles size={15} className="text-amber-500" />
+                    ترتيب ظهور الكويز للطالب في المحاضرة:
+                  </span>
+                  <span className={`text-[11px] font-black px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 w-fit ${
+                    quizPosition === "before"
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                      : "bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800"
+                  }`}>
+                    {quizPosition === "before" ? "الكويز في البداية ⬅️ ثم الفيديو" : "الفيديو ⬅️ ثم الكويز"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setQuizPosition("before")}
+                    className={`p-3 rounded-xl border text-right transition-all flex items-start gap-2.5 ${
+                      quizPosition === "before"
+                        ? "border-amber-500 bg-white dark:bg-slate-900 shadow-md ring-2 ring-amber-500/30"
+                        : "border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/60 hover:bg-white"
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border ${
+                      quizPosition === "before" ? "border-amber-500 bg-amber-500 text-white" : "border-slate-300 dark:border-slate-600"
+                    }`}>
+                      {quizPosition === "before" && <Check size={12} strokeWidth={3} />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-slate-900 dark:text-white">
+                        الكويز في البداية (قبل الفيديو) ⚡
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-0.5 leading-relaxed">
+                        يفتح الكويز أولاً ليختبر الطالب نفسه تمهيدياً قبل فتح أو تشغيل فيديو الشرح.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setQuizPosition("after")}
+                    className={`p-3 rounded-xl border text-right transition-all flex items-start gap-2.5 ${
+                      quizPosition === "after"
+                        ? "border-[#0077B6] bg-white dark:bg-slate-900 shadow-md ring-2 ring-[#0077B6]/30"
+                        : "border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/60 hover:bg-white"
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border ${
+                      quizPosition === "after" ? "border-[#0077B6] bg-[#0077B6] text-white" : "border-slate-300 dark:border-slate-600"
+                    }`}>
+                      {quizPosition === "after" && <Check size={12} strokeWidth={3} />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-slate-900 dark:text-white">
+                        الكويز بعد الفيديو (الوضع العادي) 🎬
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-0.5 leading-relaxed">
+                        يشاهد الطالب فيديو الشرح أولاً ثم ينتقل للكويز في أسفل المحاضرة.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Optional Mandatory Lock Checkbox */}
+                <label className="flex items-center gap-2 pt-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isQuizMandatory}
+                    onChange={(e) => setIsQuizMandatory(e.target.checked)}
+                    className="w-4 h-4 text-amber-600 rounded border-slate-300 focus:ring-amber-500"
+                  />
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    🔒 إجبار الطالب على اجتياز الكويز أولاً لفتح الفيديو وباقي المحتوى
+                  </span>
+                </label>
+              </div>
+
               {/* AI Doc / Text Importer for Lecture Quiz */}
               <AiExamDocImporter onExtracted={handleQuizExtracted} />
 
