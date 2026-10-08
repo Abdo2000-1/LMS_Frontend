@@ -26,7 +26,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
-import { GOVERNORATE_OPTIONS, STUDENT_GRADES, normalizeDigits, normalizePhone } from "../lib/authService.js";
+import {
+  GOVERNORATE_OPTIONS,
+  STUDENT_GRADES,
+  normalizeDigits,
+  normalizePhone,
+  registerRequest,
+} from "../lib/authService.js";
 
 function MoleculeCluster() {
   return (
@@ -235,7 +241,7 @@ export default function Register() {
       const fullName = `${form.firstName.trim()} ${form.secondName.trim()} ${form.lastName.trim()}`;
       const finalCenter = form.attendanceType === "online" ? "أونلاين" : form.centerName.trim();
 
-      await register({
+      await registerRequest({
         name: fullName,
         email: form.email.trim(),
         phone: normalizePhone(form.phone),
@@ -254,60 +260,6 @@ export default function Register() {
       setIsSubmitting(false);
     }
   }
-
-  // Submit Step 5: Confirm Telegram Code
-  async function handleConfirmCode(e, codeToSubmit) {
-    if (e) e.preventDefault();
-    const targetCode = codeToSubmit || verificationCode;
-
-    if (!telegramSession?.sessionToken) {
-      setServerError("جلسة التحقق غير صالحة، يرجى إعادة محاولة التسجيل.");
-      return;
-    }
-
-    if (!targetCode || targetCode.length < 6) {
-      setErrors({ verificationCode: "رمز التحقق يجب أن يكون 6 أرقام" });
-      return;
-    }
-
-    setIsVerifyingCode(true);
-    setServerError("");
-
-    try {
-      await confirmTelegramRegister({
-        sessionToken: telegramSession.sessionToken,
-        code: targetCode.trim(),
-      });
-
-      navigate("/dashboard", { replace: true });
-    } catch (err) {
-      setServerError(err.message || "رمز التحقق غير صحيح أو انتهت صلاحيته.");
-    } finally {
-      setIsVerifyingCode(false);
-    }
-  }
-
-  // Polling for Telegram Bot auto-acceptance
-  useEffect(() => {
-    if (currentStep !== 5 || !telegramSession?.sessionToken) return;
-
-    const interval = setInterval(async () => {
-      try {
-        setAutoVerifyChecking(true);
-        const res = await getTelegramStatus(telegramSession.sessionToken);
-        if (res.isVerified) {
-          clearInterval(interval);
-          handleConfirmCode(null, telegramSession.devCode || "AUTOVERIFIED");
-        }
-      } catch {
-        // silent catch during polling
-      } finally {
-        setAutoVerifyChecking(false);
-      }
-    }, 2500);
-
-    return () => clearInterval(interval);
-  }, [currentStep, telegramSession?.sessionToken]);
 
   const activeProgress = STEPS.find((s) => s.id === currentStep)?.percent || 25;
 

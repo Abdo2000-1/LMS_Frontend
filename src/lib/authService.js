@@ -96,14 +96,37 @@ export function mapUserProfile(data) {
 }
 
 function extractErrorMessage(error) {
-  // Try to get a readable message from the backend error response
+  // Try to get a readable message from backend RFC7807 ProblemDetails / Validation errors
+  const errorsObj = error?.response?.data?.errors;
+  if (errorsObj && typeof errorsObj === "object") {
+    const errorMessages = Object.values(errorsObj).flat();
+    if (errorMessages.length > 0) {
+      const firstMsg = errorMessages[0];
+      if (firstMsg.includes("Email") && firstMsg.includes("valid")) return "صيغة البريد الإلكتروني غير صحيحة.";
+      if (firstMsg.includes("Password") && firstMsg.includes("minimum length")) return "كلمة المرور يجب ألا تقل عن 8 أحرف.";
+      if (firstMsg.includes("required")) return "يرجى ملء جميع الحقول الإلزامية المطلوبة.";
+      return String(firstMsg);
+    }
+  }
+
   const detail =
     error?.response?.data?.detail ||
     error?.response?.data?.title ||
-    error?.response?.data?.message ||
-    error?.message ||
-    "حدث خطأ غير متوقع.";
-  return detail;
+    error?.response?.data?.message;
+
+  if (detail) {
+    if (detail === "One or more validation errors occurred.") return "بيانات التسجيل غير مكتملة، تأكد من كتابة البريد وكلمة المرور بشكل صحيح.";
+    return String(detail);
+  }
+
+  if (error?.message) {
+    if (error.message.includes("Network Error")) return "تعذر الاتصال بالسيرفر، تأكد من اتصال الإنترنت.";
+    if (error.message.includes("status code 404")) return "الرابط المطلوب غير متاح حالياً، جاري التحديث.";
+    if (error.message.includes("status code 500")) return "حدث خطأ في الخادم أثناء معالجة الطلب، يرجى المحاولة لاحقاً.";
+    return String(error.message);
+  }
+
+  return "حدث خطأ غير متوقع أثناء معالجة طلبك، يرجى إعادة المحاولة.";
 }
 
 // ─── Auth API Calls ─────────────────────────────────────────────
