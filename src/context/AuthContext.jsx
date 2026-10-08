@@ -5,6 +5,9 @@ import {
   logoutRequest,
   refreshProfileRequest,
   registerRequest,
+  initTelegramRegisterRequest,
+  confirmTelegramRegisterRequest,
+  getTelegramStatusRequest,
   updateProfileRequest,
   watchAuthState,
 } from "../lib/authService.js";
@@ -62,6 +65,17 @@ export function AuthProvider({ children }) {
     return loggedInUser;
   }
 
+  async function initTelegramRegister(payload) {
+    return await initTelegramRegisterRequest(payload);
+  }
+
+  async function confirmTelegramRegister(payload) {
+    const { user: newUser, token: nextToken } = await confirmTelegramRegisterRequest(payload);
+    setUser(newUser);
+    setToken(nextToken);
+    return newUser;
+  }
+
   async function register(payload) {
     const { user: newUser } = await registerRequest(payload);
     await logoutRequest();
@@ -97,6 +111,9 @@ export function AuthProvider({ children }) {
       isAuthenticated: Boolean(user && token),
       login,
       register,
+      initTelegramRegister,
+      confirmTelegramRegister,
+      getTelegramStatus: getTelegramStatusRequest,
       updateProfile,
       refreshProfile,
       logout,

@@ -109,9 +109,9 @@ function extractErrorMessage(error) {
 // ─── Auth API Calls ─────────────────────────────────────────────
 
 /**
- * Register a new student account.
+ * Register a new student account (Direct).
  */
-export async function registerRequest({ name, email, phone, parentPhone, center, grade, governorate, password }) {
+export async function registerRequest({ name, email, phone, parentPhone, center, grade, governorate, gender, password }) {
   try {
     const { data } = await apiClient.post("/api/auth/register", {
       fullName: String(name || "").trim(),
@@ -121,6 +121,7 @@ export async function registerRequest({ name, email, phone, parentPhone, center,
       center: String(center || "").trim(),
       grade: String(grade || "").trim(),
       governorate: String(governorate || "").trim(),
+      gender: String(gender || "").trim(),
       password,
     }, requestConfig);
 
@@ -130,6 +131,61 @@ export async function registerRequest({ name, email, phone, parentPhone, center,
     return { user, token: data.accessToken };
   } catch (error) {
     throw new Error(extractErrorMessage(error));
+  }
+}
+
+/**
+ * Initialize Telegram Verification for Registration.
+ */
+export async function initTelegramRegisterRequest({ name, email, phone, parentPhone, center, grade, governorate, gender, password, telegramPhoneOrUsername }) {
+  try {
+    const { data } = await apiClient.post("/api/auth/telegram/init", {
+      fullName: String(name || "").trim(),
+      email: String(email || "").trim().toLowerCase(),
+      phone: normalizePhone(phone),
+      parentPhone: normalizePhone(parentPhone),
+      center: String(center || "").trim(),
+      grade: String(grade || "").trim(),
+      governorate: String(governorate || "").trim(),
+      gender: String(gender || "").trim(),
+      password,
+      telegramPhoneOrUsername: telegramPhoneOrUsername ? String(telegramPhoneOrUsername).trim() : null,
+    }, requestConfig);
+
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+/**
+ * Confirm Telegram Verification Code and activate student account.
+ */
+export async function confirmTelegramRegisterRequest({ sessionToken, code }) {
+  try {
+    const { data } = await apiClient.post("/api/auth/telegram/confirm", {
+      sessionToken,
+      code,
+    }, requestConfig);
+
+    storeTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+    const user = mapUserProfile(data);
+    storeUser(user);
+    return { user, token: data.accessToken };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+/**
+ * Check Telegram session status (for auto-login polling).
+ */
+export async function getTelegramStatusRequest(sessionToken) {
+  try {
+    const { data } = await apiClient.get(`/api/auth/telegram/status/${sessionToken}`, requestConfig);
+    return data;
+  } catch {
+    return { isVerified: false, isExpired: false };
   }
 }
 
