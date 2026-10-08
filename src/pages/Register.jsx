@@ -67,8 +67,7 @@ const STEPS = [
   { id: 1, title: "البيانات الشخصية", subtitle: "الاسم والنوع والصف الدراسي", icon: User, percent: 25 },
   { id: 2, title: "أرقام التواصل", subtitle: "رقم الطالب ورقم ولي الأمر", icon: Phone, percent: 50 },
   { id: 3, title: "نظام الدراسة", subtitle: "أونلاين أم في السنتر", icon: Building2, percent: 75 },
-  { id: 4, title: "بيانات الدخول", subtitle: "الإيميل وكلمة المرور", icon: Lock, percent: 90 },
-  { id: 5, title: "تأكيد تيليجرام", subtitle: "التحقق وتفعيل الحساب فوراً", icon: Send, percent: 100 },
+  { id: 4, title: "بيانات الدخول", subtitle: "الإيميل وكلمة المرور لتأكيد الحساب", icon: Lock, percent: 100 },
 ];
 
 export default function Register() {
@@ -201,7 +200,7 @@ export default function Register() {
 
     setErrors(errs);
     if (Object.keys(errs).length === 0) {
-      setCurrentStep((prev) => Math.min(prev + 1, 5));
+      setCurrentStep((prev) => Math.min(prev + 1, 4));
     }
   }
 
@@ -222,8 +221,8 @@ export default function Register() {
     if (serverError) setServerError("");
   }
 
-  // Submit Step 4: Initialize Telegram Verification
-  async function handleInitTelegram(e) {
+  // Submit Step 4: Direct Registration
+  async function handleRegister(e) {
     if (e) e.preventDefault();
     const errs = validateStep4();
     setErrors(errs);
@@ -236,7 +235,7 @@ export default function Register() {
       const fullName = `${form.firstName.trim()} ${form.secondName.trim()} ${form.lastName.trim()}`;
       const finalCenter = form.attendanceType === "online" ? "أونلاين" : form.centerName.trim();
 
-      const sessionResponse = await initTelegramRegister({
+      await register({
         name: fullName,
         email: form.email.trim(),
         phone: normalizePhone(form.phone),
@@ -246,16 +245,11 @@ export default function Register() {
         governorate: form.governorate,
         gender: form.gender,
         password: form.password.trim(),
-        telegramPhoneOrUsername: form.telegramPhoneOrUsername,
       });
 
-      setTelegramSession(sessionResponse);
-      if (sessionResponse.devCode) {
-        setVerificationCode(sessionResponse.devCode);
-      }
-      setCurrentStep(5);
+      navigate("/login", { replace: true, state: { registered: true, phone: normalizePhone(form.phone) } });
     } catch (err) {
-      setServerError(err.message || "حدث خطأ أثناء إعداد التفعيل عبر تيليجرام.");
+      setServerError(err.message || "حدث خطأ أثناء إكمال التسجيل.");
     } finally {
       setIsSubmitting(false);
     }
@@ -338,7 +332,7 @@ export default function Register() {
             {/* Header Badge & Title */}
             <div>
               <span className="inline-flex items-center gap-1.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full text-xs font-black mb-3">
-                <Sparkles size={14} /> منظومة التسجيل الذكية والتحقق بتيليجرام
+                <Sparkles size={14} /> منظومة التسجيل الذكية والمباشرة
               </span>
               <h1 className="text-2xl sm:text-3xl font-black text-white">إنشاء حساب طالب جديد</h1>
               <p className="text-xs sm:text-sm text-slate-400 font-bold mt-1">
@@ -350,7 +344,7 @@ export default function Register() {
             <div className="space-y-3 p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-inner">
               <div className="flex items-center justify-between text-xs font-black">
                 <span className="text-cyan-400 flex items-center gap-1.5">
-                  الخطوة {currentStep} من 5: {STEPS[currentStep - 1].title}
+                  الخطوة {currentStep} من 4: {STEPS[currentStep - 1].title}
                 </span>
                 <span className="bg-cyan-500/20 text-cyan-300 px-2.5 py-0.5 rounded-full font-mono text-[11px]">
                   {activeProgress}% مكتمل
@@ -368,7 +362,7 @@ export default function Register() {
               </div>
 
               {/* Steps Pills */}
-              <div className="grid grid-cols-5 gap-1.5 pt-1">
+              <div className="grid grid-cols-4 gap-1.5 pt-1">
                 {STEPS.map((s) => {
                   const Icon = s.icon;
                   const isDone = s.id < currentStep;
@@ -723,7 +717,7 @@ export default function Register() {
               {currentStep === 4 && (
                 <motion.form
                   key="step4"
-                  onSubmit={handleInitTelegram}
+                  onSubmit={handleRegister}
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
@@ -827,149 +821,17 @@ export default function Register() {
                       {isSubmitting ? (
                         <>
                           <Loader2 size={16} className="animate-spin" />
-                          <span>جاري التجهيز للتفعيل...</span>
+                          <span>جاري إنشاء الحساب...</span>
                         </>
                       ) : (
                         <>
-                          <span>الانتقال لخطوة التفعيل عبر تيليجرام</span>
-                          <Send size={16} />
+                          <span>إنشاء الحساب والتسجيل الآن</span>
+                          <CheckCircle2 size={16} />
                         </>
                       )}
                     </button>
                   </div>
                 </motion.form>
-              )}
-
-              {/* STEP 5: Telegram Verification */}
-              {currentStep === 5 && telegramSession && (
-                <motion.div
-                  key="step5"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="space-y-6"
-                >
-                  {/* Student Info Overview Card */}
-                  <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-cyan-400">ملخص بيانات الطالب</span>
-                      <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-full font-bold">
-                        بانتظار التفعيل
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">الاسم:</span>
-                        <span className="font-bold text-white">{form.firstName} {form.secondName} {form.lastName}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">هاتف الطالب:</span>
-                        <span className="font-mono font-bold text-cyan-300" dir="ltr">{form.phone}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">هاتف ولي الأمر:</span>
-                        <span className="font-mono font-bold text-amber-300" dir="ltr">{form.parentPhone}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">نظام الدراسة:</span>
-                        <span className="font-bold text-white">{form.attendanceType === "online" ? "أونلاين" : form.centerName}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Telegram Action Panel */}
-                  <div className="p-5 rounded-2xl bg-cyan-950/40 border border-cyan-800/60 space-y-4 text-center">
-                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400 shadow-lg shadow-cyan-900/40">
-                      <Send size={24} />
-                    </div>
-
-                    <div>
-                      <h3 className="text-base font-black text-white">خطوة التفعيل عبر بوت تيليجرام</h3>
-                      <p className="text-xs text-slate-300 font-bold mt-1">
-                        اضغط على الزر لفتح بوت تيليجرام الرسمي والتأكيد، أو أدخل كود التحقق المكون من 6 أرقام:
-                      </p>
-                    </div>
-
-                    {/* Bot Button */}
-                    <a
-                      href={telegramSession.telegramBotUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-2.5 w-full py-3.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs transition shadow-lg shadow-cyan-900/40"
-                    >
-                      <Send size={16} />
-                      <span>فتح بوت تيليجرام والتأكيد الفوري 📱</span>
-                      <ExternalLink size={14} />
-                    </a>
-
-                    {/* Auto Polling Indicator */}
-                    <div className="flex items-center justify-center gap-2 text-[11px] text-cyan-300 font-bold bg-cyan-900/30 py-2 rounded-xl border border-cyan-800/40">
-                      <Loader2 size={13} className="animate-spin text-cyan-400" />
-                      <span>في انتظار الضغط على تأكيد داخل بوت تيليجرام (متابعة تلقائية)...</span>
-                    </div>
-
-                    {/* Code Input Box */}
-                    <div className="pt-2 text-right space-y-2">
-                      <label className="block text-xs font-black text-slate-300">
-                        أو أدخل كود التحقق المرسل في تيليجرام:
-                      </label>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={verificationCode}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/\D/g, "");
-                          setVerificationCode(val);
-                          if (errors.verificationCode) setErrors({});
-                        }}
-                        placeholder="XXXXXX"
-                        className="w-full text-center tracking-[0.5em] font-mono text-lg font-black py-3 rounded-xl bg-slate-900 border border-cyan-500/50 text-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                      />
-                      {errors.verificationCode && <p className="text-[11px] text-red-400 font-bold">{errors.verificationCode}</p>}
-                    </div>
-
-                    {/* Dev Mode Box (Local Testing Helper) */}
-                    {telegramSession.devCode && (
-                      <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/40 text-right space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">
-                            [وضع التجربة المحلية - Dev Mode]
-                          </span>
-                          <span className="font-mono font-black text-emerald-400 text-sm">{telegramSession.devCode}</span>
-                        </div>
-                        <p className="text-[10px] text-slate-400 font-bold">
-                          هذا الكود يظهر للتجربة المحلية الفورية دون الحاجة لإعداد بوت تيليجرام خارجي.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => handleConfirmCode(null, telegramSession.devCode)}
-                          className="w-full py-2 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 text-xs font-black transition border border-emerald-500/30"
-                        >
-                          تأكيد وتفعيل الحساب فوراً بكود التجربة ✓
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Confirm Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleConfirmCode(e)}
-                      disabled={isVerifyingCode}
-                      className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 text-white text-xs font-black hover:opacity-95 transition shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {isVerifyingCode ? (
-                        <>
-                          <Loader2 size={16} className="animate-spin" />
-                          <span>جاري التحقق وتفعيل الحساب...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 size={16} />
-                          <span>تأكيد وتفعيل الحساب الآن 🚀</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </motion.div>
               )}
             </AnimatePresence>
           </div>
