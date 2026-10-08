@@ -71,7 +71,7 @@ const STEPS = [
 ];
 
 export default function Register() {
-  const { initTelegramRegister, confirmTelegramRegister, getTelegramStatus } = useAuth();
+  const { register } = useAuth();
   const navigate = useNavigate();
 
   const [currentStep, setCurrentStep] = useState(1);
