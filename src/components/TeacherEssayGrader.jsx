@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { FileEdit, CheckCircle2, Sparkles, AlertCircle, User, BookOpen } from "lucide-react";
-import { getPendingEssays, gradeEssayByTeacher } from "../services/essayService.js";
+import { FileEdit, CheckCircle2, Sparkles, AlertCircle, User, BookOpen, Camera, ExternalLink, ZoomIn, X } from "lucide-react";
+import { getPendingEssays, gradeEssayByTeacher, parseEssayAnswer } from "../services/essayService.js";
 
 export default function TeacherEssayGrader() {
   const [submissions, setSubmissions] = useState([]);
@@ -9,6 +9,7 @@ export default function TeacherEssayGrader() {
   const [scores, setScores] = useState({});
   const [feedbacks, setFeedbacks] = useState({});
   const [message, setMessage] = useState({ type: "", text: "" });
+  const [previewImage, setPreviewImage] = useState(null);
 
   useEffect(() => {
     loadSubmissions();
@@ -129,9 +130,60 @@ export default function TeacherEssayGrader() {
 
                 <div>
                   <span className="text-xs font-bold text-slate-500 dark:text-slate-400">إجابة الطالب:</span>
-                  <div className="p-4 rounded-2xl bg-sky-50/50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/40 text-sm font-bold text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
-                    {sub.studentAnswer}
-                  </div>
+                  {(() => {
+                    const parsed = parseEssayAnswer(sub.studentAnswer);
+                    return (
+                      <div className="p-4 rounded-2xl bg-sky-50/50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/40 text-sm font-bold text-slate-800 dark:text-slate-200 leading-relaxed space-y-3">
+                        {parsed.text && (
+                          <div className="whitespace-pre-wrap">{parsed.text}</div>
+                        )}
+                        {parsed.imageUrl && (
+                          <div className="pt-2">
+                            <span className="block text-xs font-black text-[#0077B6] dark:text-[#00A8E8] mb-2 flex items-center gap-1.5">
+                              <Camera size={14} /> صورة الحل المرفقة من الطالب:
+                            </span>
+                            <div className="relative inline-block group rounded-2xl overflow-hidden border border-sky-200 dark:border-sky-800 bg-white dark:bg-slate-900 max-w-full">
+                              <img
+                                src={parsed.imageUrl}
+                                alt="صورة حل الطالب"
+                                className="max-h-96 w-auto object-contain cursor-pointer hover:opacity-95 transition"
+                                onClick={() => setPreviewImage(parsed.imageUrl)}
+                              />
+                              <div
+                                onClick={() => setPreviewImage(parsed.imageUrl)}
+                                className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center cursor-pointer text-white text-xs font-bold gap-1"
+                              >
+                                <ZoomIn size={16} />
+                                <span>تكبير الصورة</span>
+                              </div>
+                            </div>
+                            <div className="mt-2 flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewImage(parsed.imageUrl)}
+                                className="inline-flex items-center gap-1 text-xs font-bold text-[#0077B6] hover:underline"
+                              >
+                                <ZoomIn size={12} />
+                                <span>معاينة مكبرة</span>
+                              </button>
+                              <a
+                                href={parsed.imageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                              >
+                                <ExternalLink size={12} />
+                                <span>فتح الصورة في نافذة جديدة</span>
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                        {!parsed.text && !parsed.imageUrl && (
+                          <span className="text-slate-400 text-xs">لم يتم تقديم إجابة.</span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {sub.modelAnswer && (
@@ -214,6 +266,60 @@ export default function TeacherEssayGrader() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Full Preview Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-3xl p-5 overflow-hidden flex flex-col items-center border border-slate-200 dark:border-slate-800 shadow-2xl w-full"
+          >
+            <div className="w-full flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-3">
+              <span className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Camera size={18} className="text-[#0077B6]" />
+                <span>صورة حل الطالب</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="w-full max-h-[70vh] overflow-auto flex items-center justify-center rounded-2xl bg-slate-950 p-2">
+              <img
+                src={previewImage}
+                alt="صورة حل الطالب بالحجم الكامل"
+                className="max-h-[68vh] w-auto object-contain rounded-xl"
+              />
+            </div>
+
+            <div className="w-full flex items-center justify-between pt-3 mt-2 text-xs">
+              <a
+                href={previewImage}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#0077B6] font-bold hover:underline flex items-center gap-1"
+              >
+                <span>فتح في نافذة جديدة</span>
+                <ExternalLink size={13} />
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="px-5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

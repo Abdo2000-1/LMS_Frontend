@@ -699,10 +699,28 @@ export async function revokeStudentLectureAccess(uid, courseId, lectureId) {
   }
 }
 
-export async function submitExamAttempt({ examId, answers, timeSpentSeconds = 0 }) {
+export async function uploadExamAnswerImage(file) {
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await apiClient.post("/api/exams/upload-answer-image", formData, {
+      ...requestConfig,
+      headers: {
+        ...requestConfig.headers,
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return data.url;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function submitExamAttempt({ examId, answers, textAnswers = {}, timeSpentSeconds = 0 }) {
   try {
     const { data } = await apiClient.post(`/api/exams/${examId}/attempt`, {
       answers,
+      textAnswers,
       timeSpentSeconds: Number(timeSpentSeconds || 0),
     }, requestConfig);
     return {

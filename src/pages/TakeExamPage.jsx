@@ -21,10 +21,16 @@ import {
   RotateCcw,
   Eye,
   FileQuestion,
-  Lock
+  Lock,
+  Camera,
+  UploadCloud,
+  Trash2,
+  ZoomIn,
+  Image as ImageIcon
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { getExamById, submitExamAttempt } from "../services/courseService.js";
+import { getExamById, submitExamAttempt, uploadExamAnswerImage } from "../services/courseService.js";
+import { parseEssayAnswer, formatEssayAnswer, compressImageFile } from "../services/essayService.js";
 
 function formatTime(seconds) {
   const safe = Math.max(0, Number(seconds) || 0);
@@ -55,8 +61,15 @@ export default function TakeExamPage() {
   const [result, setResult] = useState(null);
   const [reviewMode, setReviewMode] = useState(false);
 
+  // Essay image answer upload & preview states
+  const [answerImages, setAnswerImages] = useState({}); // { [questionId]: imageUrl }
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [previewImageModal, setPreviewImageModal] = useState(null);
+
   const timerRef = useRef(null);
   const leaveCountRef = useRef(0);
+  const answerImagesRef = useRef(answerImages);
+  useEffect(() => { answerImagesRef.current = answerImages; }, [answerImages]);
 
   // Load exam on mount or when examId changes
   useEffect(() => {
@@ -66,6 +79,7 @@ export default function TakeExamPage() {
     setResult(null);
     setShuffledList([]);
     setAnswers({});
+    setAnswerImages({});
     setFlagged(new Set());
     setCurrentIndex(0);
     setError("");
@@ -150,7 +164,17 @@ export default function TakeExamPage() {
   useEffect(() => { timeLeftRef.current = timeLeft; }, [timeLeft]);
 
   const currentQuestion = questions[currentIndex] || questions[0] || null;
-  const answeredCount = Object.keys(answers).filter((k) => answers[k] !== undefined && answers[k] !== "").length;
+
+  const isQuestionAnswered = (qId) => {
+    const ans = answers[qId];
+    const img = answerImages[qId];
+    if (img && String(img).trim().length > 0) return true;
+    if (ans === undefined || ans === null || ans === "") return false;
+    if (typeof ans === "string") return ans.trim().length > 0;
+    return true;
+  };
+
+  const answeredCount = questions.filter((q) => isQuestionAnswered(q.questionId)).length;
   const unansweredCount = questions.length - answeredCount;
   const timeSpentSeconds = (exam?.minutes || 30) * 60 - timeLeft;
 
@@ -163,13 +187,36 @@ export default function TakeExamPage() {
     setTabWarningModalOpen(false);
 
     try {
-      const answersToSend = customAnswers || answersRef.current || answers;
+      const rawAnswers = customAnswers || answersRef.current || answers;
+      const rawImages = answerImagesRef.current || answerImages;
       const tLeft = customTimeLeft !== undefined ? customTimeLeft : (timeLeftRef.current !== undefined ? timeLeftRef.current : timeLeft);
       const spent = Math.max(1, (exam?.minutes || 30) * 60 - tLeft);
 
+      const numericAnswers = {};
+      const textAnswers = {};
+      const combinedForReview = {};
+
+      questions.forEach((q) => {
+        const qId = q.questionId;
+        const ans = rawAnswers[qId];
+        const img = rawImages[qId];
+
+        if (q.type === "essay" || (!q.choices || q.choices.length === 0)) {
+          const formatted = formatEssayAnswer(ans, img);
+          if (formatted) {
+            textAnswers[qId] = formatted;
+            combinedForReview[qId] = formatted;
+          }
+        } else if (typeof ans === "number") {
+          numericAnswers[qId] = ans;
+          combinedForReview[qId] = ans;
+        }
+      });
+
       const res = await submitExamAttempt({
         examId: exam.id,
-        answers: answersToSend,
+        answers: numericAnswers,
+        textAnswers,
         timeSpentSeconds: spent,
       });
 
@@ -179,7 +226,8 @@ export default function TakeExamPage() {
 
       setResult({
         ...res,
-        answers: answersToSend,
+        answers: combinedForReview,
+        textAnswers,
         timeSpentSeconds: spent,
       });
 
@@ -273,6 +321,7 @@ export default function TakeExamPage() {
     const shuffled = shuffleArray(listToShuffle);
     setShuffledList(shuffled);
     setAnswers({});
+    setAnswerImages({});
     setFlagged(new Set());
     setCurrentIndex(0);
     setTimeLeft((exam?.minutes || 30) * 60);
@@ -292,6 +341,31 @@ export default function TakeExamPage() {
       ...prev,
       [questionId]: text,
     }));
+  }
+
+  async function handleImageUpload(questionId, file) {
+    if (!file) return;
+    setUploadingImage(true);
+    try {
+      const compressed = await compressImageFile(file);
+      const uploadedUrl = await uploadExamAnswerImage(compressed);
+      setAnswerImages((prev) => ({
+        ...prev,
+        [questionId]: uploadedUrl,
+      }));
+    } catch (err) {
+      alert(err?.message || "تعذر رفع صورة الإجابة، يرجى المحاولة مرة أخرى.");
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  function handleRemoveImage(questionId) {
+    setAnswerImages((prev) => {
+      const next = { ...prev };
+      delete next[questionId];
+      return next;
+    });
   }
 
   function toggleFlag(questionId) {
@@ -602,19 +676,142 @@ export default function TakeExamPage() {
                 </div>
               )}
 
-              {/* Options / Text Input */}
+              {/* Options / Text Input / Image Upload */}
               {currentQuestion.type === "essay" || (!currentQuestion.choices || currentQuestion.choices.length === 0) ? (
-                <div className="space-y-2 pt-2">
-                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400">
-                    اكتب إجابتك المقالية بالتفصيل:
-                  </label>
+                <div className="space-y-4 pt-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      إجابتك على السؤال المقالي (كتابة نصية أو رفع صورة ورقة الحل اليدوي):
+                    </label>
+                    <span className="text-[11px] font-bold text-[#0077B6] dark:text-[#00A8E8] bg-cyan-50 dark:bg-cyan-950/60 px-3 py-1 rounded-xl border border-cyan-200/60 dark:border-cyan-800/40">
+                      متاح: كتابة مباشرة أو صورة حل
+                    </span>
+                  </div>
+
+                  {/* Direct Text Input */}
                   <textarea
-                    rows={6}
+                    rows={5}
                     value={answers[currentQuestion.questionId] || ""}
                     onChange={(e) => handleTextAnswer(currentQuestion.questionId, e.target.value)}
                     placeholder="اكتب إجابتك هنا ليتم تصحيحها ومراجعتها..."
                     className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 p-4 text-sm font-bold text-slate-900 dark:text-white placeholder-slate-400 outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20 transition"
                   />
+
+                  {/* Image Answer Upload Box */}
+                  <div className="p-4 rounded-2xl border border-dashed border-cyan-300 dark:border-cyan-800/70 bg-gradient-to-l from-cyan-50/50 via-sky-50/30 to-white dark:from-cyan-950/20 dark:via-slate-900 dark:to-slate-900 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Camera size={18} className="text-[#0077B6] dark:text-[#00A8E8]" />
+                        <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                          إرفاق صورة الإجابة (حل يدوي / ورقة إجابة)
+                        </span>
+                      </div>
+                      {answerImages[currentQuestion.questionId] && (
+                        <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                          <Check size={12} />
+                          <span>تم إرفاق صورة الحل</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {answerImages[currentQuestion.questionId] ? (
+                      /* Uploaded Image Preview Card */
+                      <div className="flex flex-col sm:flex-row items-center gap-4 p-3.5 rounded-2xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <div
+                          onClick={() => setPreviewImageModal(answerImages[currentQuestion.questionId])}
+                          className="relative group cursor-pointer w-28 h-24 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 shrink-0"
+                        >
+                          <img
+                            src={answerImages[currentQuestion.questionId]}
+                            alt="صورة إجابتك"
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                            <ZoomIn size={18} />
+                          </div>
+                        </div>
+
+                        <div className="flex-1 min-w-0 space-y-1 text-center sm:text-right">
+                          <p className="text-xs font-black text-slate-800 dark:text-slate-100">
+                            تم رفع صورة الإجابة بنجاح
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            يمكنك النقر على الصورة لتكبيرها والتحقق من وضوح الخط
+                          </p>
+                          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewImageModal(answerImages[currentQuestion.questionId])}
+                              className="px-3 py-1.5 rounded-xl bg-cyan-50 dark:bg-cyan-950/60 hover:bg-cyan-100 text-[#0077B6] dark:text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition"
+                            >
+                              <Eye size={13} />
+                              <span>معاينة مكبرة</span>
+                            </button>
+
+                            <label className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer flex items-center gap-1.5 transition">
+                              <RefreshCw size={13} className={uploadingImage ? "animate-spin" : ""} />
+                              <span>تغيير الصورة</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={uploadingImage}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleImageUpload(currentQuestion.questionId, file);
+                                  e.target.value = "";
+                                }}
+                              />
+                            </label>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveImage(currentQuestion.questionId)}
+                              className="px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 text-red-600 dark:text-red-400 text-xs font-bold flex items-center gap-1.5 transition"
+                            >
+                              <Trash2 size={13} />
+                              <span>حذف</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Upload Button / Trigger */
+                      <div>
+                        <label className={`flex flex-col items-center justify-center p-5 rounded-2xl border border-dashed border-cyan-400/80 dark:border-cyan-700/60 bg-white/80 dark:bg-slate-800/60 hover:bg-cyan-50/60 dark:hover:bg-cyan-950/30 cursor-pointer transition group shadow-sm ${uploadingImage ? "opacity-60 pointer-events-none" : ""}`}>
+                          {uploadingImage ? (
+                            <div className="flex items-center gap-2 text-[#0077B6] dark:text-[#00A8E8] text-xs font-bold py-2">
+                              <RefreshCw size={18} className="animate-spin" />
+                              <span>جارٍ معالجة ورفع صورة الإجابة...</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-1.5 text-center">
+                              <div className="w-11 h-11 rounded-2xl bg-cyan-100 dark:bg-cyan-900/60 text-[#0077B6] dark:text-cyan-300 flex items-center justify-center group-hover:scale-110 transition shadow-sm">
+                                <UploadCloud size={22} />
+                              </div>
+                              <span className="text-xs font-black text-slate-800 dark:text-slate-100 mt-1">
+                                اضغط هنا لرفع صورة الحل أو التقاطها بالكاميرا
+                              </span>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                يدعم JPG, PNG, WebP (يمكنك كتابة نص أعلاه أو رفع صورة أو كلاهما)
+                              </span>
+                            </div>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={uploadingImage}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleImageUpload(currentQuestion.questionId, file);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3 pt-2">
@@ -729,7 +926,7 @@ export default function TakeExamPage() {
               <div className="grid grid-cols-5 gap-2 max-h-72 overflow-y-auto p-1 scrollbar-thin">
                 {questions.map((q, idx) => {
                   const isCurrent = idx === currentIndex;
-                  const isAnswered = answers[q.questionId] !== undefined && answers[q.questionId] !== "";
+                  const isAnswered = isQuestionAnswered(q.questionId);
                   const isFlagged = flagged.has(q.questionId);
 
                   return (
@@ -934,6 +1131,65 @@ export default function TakeExamPage() {
                         })}
                       </div>
                     )}
+
+                    {/* Essay Review: Student answer (text and/or image) & Model Answer */}
+                    {q.type === "essay" && (() => {
+                      const essayData = parseEssayAnswer(studentAns || result.textAnswers?.[q.questionId]);
+                      const hasText = Boolean(essayData.text);
+                      const hasImage = Boolean(essayData.imageUrl);
+
+                      return (
+                        <div className="space-y-3 pt-2 text-xs">
+                          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                            <span className="block font-black text-slate-500 dark:text-slate-400">
+                              إجابتك المقدمة:
+                            </span>
+                            {hasText && (
+                              <p className="text-sm font-bold text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed">
+                                {essayData.text}
+                              </p>
+                            )}
+                            {hasImage && (
+                              <div className="pt-2">
+                                <span className="block text-[11px] font-bold text-[#0077B6] dark:text-[#00A8E8] mb-1.5">
+                                  صورة الحل المرفقة:
+                                </span>
+                                <div className="relative inline-block group rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950">
+                                  <img
+                                    src={essayData.imageUrl}
+                                    alt="صورة إجابة الطالب"
+                                    className="max-h-60 max-w-full rounded-xl object-contain cursor-pointer hover:opacity-95 transition"
+                                    onClick={() => setPreviewImageModal(essayData.imageUrl)}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewImageModal(essayData.imageUrl)}
+                                    className="absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-900 text-white text-[11px] font-bold flex items-center gap-1 backdrop-blur-sm"
+                                  >
+                                    <ZoomIn size={12} />
+                                    <span>تكبير الصورة</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            {!hasText && !hasImage && (
+                              <p className="text-xs text-slate-400 font-bold">لم يتم تقديم إجابة على هذا السؤال.</p>
+                            )}
+                          </div>
+
+                          {q.modelAnswer && (
+                            <div className="p-4 rounded-2xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800 space-y-1">
+                              <span className="block font-black text-[#0077B6] dark:text-[#00A8E8]">
+                                الإجابة النموذجية المعتمدة:
+                              </span>
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
+                                {q.modelAnswer}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -1105,6 +1361,65 @@ export default function TakeExamPage() {
               >
                 فهمت، والعودة لمتابعة الامتحان الآن
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ 6. IMAGE PREVIEW MODAL ═════════════════════════════════════ */}
+      <AnimatePresence>
+        {previewImageModal && (
+          <div
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setPreviewImageModal(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-6 overflow-hidden flex flex-col items-center border border-slate-200 dark:border-slate-800 shadow-2xl w-full"
+            >
+              <div className="w-full flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-3">
+                <span className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Camera size={18} className="text-[#0077B6] dark:text-[#00A8E8]" />
+                  <span>معاينة صورة الحل</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewImageModal(null)}
+                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="w-full max-h-[68vh] overflow-auto flex items-center justify-center rounded-2xl bg-slate-950 p-2">
+                <img
+                  src={previewImageModal}
+                  alt="صورة الإجابة بالحجم الكامل"
+                  className="max-h-[65vh] w-auto object-contain rounded-xl"
+                />
+              </div>
+
+              <div className="w-full flex items-center justify-between pt-3 mt-2 text-xs">
+                <a
+                  href={previewImageModal}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#0077B6] dark:text-[#00A8E8] font-bold hover:underline flex items-center gap-1"
+                >
+                  <span>فتح في نافذة جديدة</span>
+                  <ArrowLeft size={13} />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewImageModal(null)}
+                  className="px-5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                >
+                  إغلاق
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
