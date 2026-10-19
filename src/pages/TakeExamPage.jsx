@@ -146,14 +146,46 @@ export default function TakeExamPage() {
     if (exam.lastAttempt) return exam.lastAttempt;
     const fromUser = user?.quizResults?.[exam.courseId]?.[exam.id] || user?.quizResults?.[exam.id];
     if (fromUser) return fromUser;
-    try {
-      const saved = localStorage.getItem(`lms_exam_attempted_${exam.id}`);
-      if (saved) return JSON.parse(saved);
-    } catch {}
+    if (user?.id) {
+      try {
+        const key = `lms_exam_attempted_${user.id}_${exam.id}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && (parsed.userId === user.id || !parsed.userId)) {
+            return parsed;
+          }
+        }
+      } catch {}
+    }
     return null;
   }, [exam, user]);
 
-  const hasCompletedAttempt = Boolean(priorAttempt || (isRetakeForbidden && exam?.hasAttempted));
+  const hasCompletedAttempt = useMemo(() => {
+    if (isTeacherOrAdmin) return false;
+    if (exam?.hasAttempted) return true;
+    if (exam?.lastAttempt) return true;
+    if (user?.quizResults?.[exam?.courseId]?.[exam?.id] || user?.quizResults?.[exam?.id]) return true;
+    if (user?.id) {
+      try {
+        const saved = localStorage.getItem(`lms_exam_attempted_${user.id}_${exam?.id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.userId === user.id) return true;
+        }
+      } catch {}
+    }
+    return false;
+  }, [isTeacherOrAdmin, exam, user]);
+
+  // Clean up legacy un-scoped localStorage items that previously bled teacher attempts to students
+  useEffect(() => {
+    if (exam?.id) {
+      try {
+        localStorage.removeItem(`lms_exam_attempted_${exam.id}`);
+      } catch {}
+    }
+  }, [exam?.id]);
 
   // Refs for access inside native event handlers
   const answersRef = useRef(answers);
@@ -219,14 +251,17 @@ export default function TakeExamPage() {
         timeSpentSeconds: spent,
       });
 
-      try {
-        localStorage.setItem(`lms_exam_attempted_${exam.id}`, JSON.stringify({
-          ...res,
-          answers: combinedForReview,
-          textAnswers,
-          evaluations: res?.evaluations || {},
-        }));
-      } catch {}
+      if (user?.id && exam?.id) {
+        try {
+          localStorage.setItem(`lms_exam_attempted_${user.id}_${exam.id}`, JSON.stringify({
+            userId: user.id,
+            ...res,
+            answers: combinedForReview,
+            textAnswers,
+            evaluations: res?.evaluations || {},
+          }));
+        } catch {}
+      }
 
       setResult({
         ...res,
@@ -1056,7 +1091,16 @@ export default function TakeExamPage() {
                 <span>{reviewMode ? "إخفاء نموذج الإجابة" : "عرض ومراجعة الإجابات النموذجية"}</span>
               </button>
 
-              {!isRetakeForbidden ? (
+              {isTeacherOrAdmin ? (
+                <button
+                  type="button"
+                  onClick={handleStartExam}
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white text-xs font-black transition flex items-center gap-2 shadow-sm"
+                >
+                  <RotateCcw size={16} />
+                  <span>إعادة الاختبار (معاينة المعلم - محاولات غير محدودة)</span>
+                </button>
+              ) : !isRetakeForbidden ? (
                 <button
                   type="button"
                   onClick={handleStartExam}
