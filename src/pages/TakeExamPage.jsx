@@ -26,7 +26,9 @@ import {
   UploadCloud,
   Trash2,
   ZoomIn,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Bot,
+  Loader2
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { getExamById, submitExamAttempt, uploadExamAnswerImage } from "../services/courseService.js";
@@ -130,6 +132,10 @@ export default function TakeExamPage() {
 
   const totalPoints = useMemo(() => {
     return questions.reduce((sum, q) => sum + (q.points || 1), 0);
+  }, [questions]);
+
+  const hasEssayQuestions = useMemo(() => {
+    return questions.some((q) => q.type === "essay" || (!q.choices || q.choices.length === 0));
   }, [questions]);
 
   // Retake policy and prior attempt determination
@@ -1357,6 +1363,67 @@ export default function TakeExamPage() {
           )}
         </main>
       )}
+
+      {/* ═══ AI GRADING / SUBMISSION LOADING OVERLAY ═══════════════════ */}
+      <AnimatePresence>
+        {isSubmitting && (
+          <div className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: -10 }}
+              className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 sm:p-10 border border-slate-200 dark:border-slate-800 shadow-2xl text-center space-y-6"
+            >
+              {/* Animated AI Glowing Icon */}
+              <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
+                <div className="absolute inset-0 rounded-3xl bg-[#0077B6] dark:bg-cyan-500 opacity-20 animate-ping" />
+                <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-[#0077B6] to-[#00A8E8] text-white flex items-center justify-center shadow-xl shadow-cyan-500/30 border border-white/20">
+                  <Sparkles size={38} className="animate-pulse" />
+                </div>
+              </div>
+
+              {/* Main Notification Messages */}
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-cyan-100 dark:bg-cyan-950/80 text-[#0077B6] dark:text-cyan-300 text-xs font-black">
+                  <Bot size={14} />
+                  <span>{hasEssayQuestions ? "تصحيح ذكي فوري بالذكاء الاصطناعي" : "تسجيل النتيجة والاعتماد"}</span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white leading-relaxed">
+                  {hasEssayQuestions
+                    ? "انتظر، يتم تصحيح امتحانك بالذكاء الاصطناعي (AI)..."
+                    : "انتظر، يتم تسجيل إجاباتك واحتساب النتيجة..."}
+                </h3>
+                <p className="text-sm sm:text-base font-bold text-[#0077B6] dark:text-cyan-400">
+                  في غضون ثوانٍ سيتم نقلك لترى درجتك ونموذج الإجابة
+                </p>
+              </div>
+
+              {/* Animated Progress Bar */}
+              <div className="space-y-2.5">
+                <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden p-0.5">
+                  <motion.div
+                    className="bg-gradient-to-r from-[#0077B6] via-cyan-400 to-emerald-400 h-full rounded-full"
+                    initial={{ width: "12%" }}
+                    animate={{ width: "95%" }}
+                    transition={{ duration: 7, ease: "easeInOut" }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 px-1">
+                  <span>{hasEssayQuestions ? "تحليل الحلول المقالية والمطابقة بالنموذج..." : "حساب الدرجات والنسبة..."}</span>
+                  <span className="flex items-center gap-1 font-mono text-[#0077B6] dark:text-cyan-400">
+                    <Loader2 size={12} className="animate-spin" /> جاري المعالجة
+                  </span>
+                </div>
+              </div>
+
+              {/* Safety note */}
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 leading-relaxed">
+                🔒 يرجى عدم إغلاق الصفحة أو تحديث المتصفح، جاري إنهاء وتأكيد تصحيح الامتحان فورياً...
+              </p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ═══ SUBMIT CONFIRMATION MODAL ═══════════════════════════════════ */}
       <AnimatePresence>
