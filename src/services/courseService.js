@@ -784,7 +784,21 @@ export async function submitExamAttempt({ examId, answers, textAnswers = {}, tim
       timeSpentSeconds: data.timeSpentSeconds ?? Number(timeSpentSeconds || 0),
       createdAt: data.createdAt,
       evaluations: data.evaluations || {},
+      isGradingComplete: data.isGradingComplete,
+      pendingEssaysCount: data.pendingEssaysCount,
     };
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function gradeExamSingleEssay({ examId, attemptId, questionId, studentAnswer }) {
+  try {
+    const { data } = await apiClient.post(`/api/exams/${examId}/attempt/${attemptId}/grade-essay`, {
+      questionId,
+      studentAnswer,
+    }, requestConfig);
+    return data;
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }

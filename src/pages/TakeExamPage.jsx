@@ -31,7 +31,7 @@ import {
   Loader2
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { getExamById, submitExamAttempt, uploadExamAnswerImage } from "../services/courseService.js";
+import { getExamById, submitExamAttempt, uploadExamAnswerImage, gradeExamSingleEssay } from "../services/courseService.js";
 import { parseEssayAnswer, formatEssayAnswer, compressImageFile } from "../services/essayService.js";
 
 function formatTime(seconds) {
@@ -277,6 +277,7 @@ export default function TakeExamPage() {
         timeSpentSeconds: spent,
       });
 
+      setReviewMode(true);
       setExamState("result");
       await refreshProfile?.();
     } catch (err) {
@@ -289,6 +290,82 @@ export default function TakeExamPage() {
   async function handleFinalSubmit() {
     await performSubmission();
   }
+
+  // Count remaining pending essay questions
+  const pendingEssaysCount = useMemo(() => {
+    if (!result?.evaluations) return 0;
+    return questions.filter((q) => {
+      const isEssay = q.type === "essay" || (!q.choices || q.choices.length === 0);
+      if (!isEssay) return false;
+      const ev = result.evaluations?.[q.questionId];
+      return !ev || ev.isPending;
+    }).length;
+  }, [result, questions]);
+
+  // Parallel Real-Time Essay Grader in Review screen
+  const gradingQueueRef = useRef(new Set());
+
+  useEffect(() => {
+    if (examState !== "result" || !result?.id) return;
+
+    const pendingEssays = questions.filter((q) => {
+      const isEssay = q.type === "essay" || (!q.choices || q.choices.length === 0);
+      if (!isEssay) return false;
+      const ev = result.evaluations?.[q.questionId];
+      return !ev || ev.isPending;
+    });
+
+    if (pendingEssays.length === 0) return;
+
+    pendingEssays.forEach(async (q) => {
+      if (gradingQueueRef.current.has(q.questionId)) return;
+      gradingQueueRef.current.add(q.questionId);
+
+      try {
+        const studentAns = result.textAnswers?.[q.questionId] || result.answers?.[q.questionId] || "";
+        const formattedAns = typeof studentAns === "string" ? studentAns : JSON.stringify(studentAns);
+
+        const graded = await gradeExamSingleEssay({
+          examId: exam.id,
+          attemptId: result.id,
+          questionId: q.questionId,
+          studentAnswer: formattedAns,
+        });
+
+        if (graded?.evaluation) {
+          setResult((prev) => {
+            if (!prev) return prev;
+            const updatedEvals = {
+              ...(prev.evaluations || {}),
+              [q.questionId]: graded.evaluation,
+            };
+            const updated = {
+              ...prev,
+              earnedPoints: graded.totalEarnedPoints ?? prev.earnedPoints,
+              percentage: graded.percentage ?? prev.percentage,
+              evaluations: updatedEvals,
+              isGradingComplete: graded.isAllGraded,
+            };
+
+            if (user?.id && exam?.id) {
+              try {
+                localStorage.setItem(`lms_exam_attempted_${user.id}_${exam.id}`, JSON.stringify({
+                  userId: user.id,
+                  ...updated,
+                }));
+              } catch {}
+            }
+
+            return updated;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to grade essay question in background:", q.questionId, err);
+      } finally {
+        gradingQueueRef.current.delete(q.questionId);
+      }
+    });
+  }, [examState, result?.id, questions, exam?.id, user?.id]);
 
   // Anti-Cheat & Exit Guard during running exam
   useEffect(() => {
@@ -1055,20 +1132,64 @@ export default function TakeExamPage() {
               </p>
             </div>
 
+            {/* Live AI Grading Banner */}
+            {pendingEssaysCount > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-2xl mx-auto p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-cyan-500/10 via-[#0077B6]/15 to-emerald-500/10 border-2 border-cyan-400 dark:border-cyan-600 shadow-md text-right space-y-2"
+              >
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-cyan-100 dark:bg-cyan-950 text-[#0077B6] dark:text-cyan-400 flex items-center justify-center shrink-0">
+                      <Sparkles size={20} className="animate-pulse" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                        <span>جاري تصحيح الأسئلة المقالية بالذكاء الاصطناعي...</span>
+                        <span className="px-2 py-0.5 rounded-full text-[11px] bg-cyan-100 dark:bg-cyan-900/80 text-[#0077B6] dark:text-cyan-300 font-mono font-black">
+                          {pendingEssaysCount} متبقي
+                        </span>
+                      </h4>
+                      <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                        الدرجة الحالية لاختياراتك فقط. يمكنك مراجعة الإجابات بالأسفل وستُحتسب وتُضاف درجات كل سؤال مقالي فور اكتماله تلقائياً.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-cyan-300 dark:border-cyan-700 text-xs font-black text-[#0077B6] dark:text-cyan-300 shadow-sm">
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>تصحيح حي متوازي</span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* Score Stats Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-2xl mx-auto pt-2">
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-center">
                 <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
                   {result.earnedPoints} <span className="text-xs text-slate-400">/ {result.totalPoints}</span>
+                  {pendingEssaysCount > 0 && <span className="text-[11px] text-amber-600 dark:text-amber-400 font-black block mt-0.5">(+جاري المقالي ⏳)</span>}
                 </p>
-                <p className="text-xs font-bold text-slate-500 mt-1">الدرجة المحققة</p>
+                <p className="text-xs font-bold text-slate-500 mt-1">
+                  {pendingEssaysCount > 0 ? "درجة الاختياري الحالية" : "الدرجة المحققة"}
+                </p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-center">
                 <p className="text-2xl font-black text-[#0077B6] dark:text-[#00A8E8]">
-                  {result.percentage}%
+                  {pendingEssaysCount > 0 ? (
+                    <span className="text-sm font-black flex items-center justify-center gap-1 text-cyan-600 dark:text-cyan-400">
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>قيد الاحتساب</span>
+                    </span>
+                  ) : (
+                    `${result.percentage}%`
+                  )}
                 </p>
-                <p className="text-xs font-bold text-slate-500 mt-1">النسبة المئوية</p>
+                <p className="text-xs font-bold text-slate-500 mt-1">
+                  {pendingEssaysCount > 0 ? "النسبة بعد المقالي" : "النسبة المئوية"}
+                </p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-center">
@@ -1143,24 +1264,25 @@ export default function TakeExamPage() {
               {questions.map((q, qIdx) => {
                 const studentAns = result.answers?.[q.questionId] ?? priorAttempt?.answers?.[q.questionId];
                 const qEval = result.evaluations?.[q.questionId] || priorAttempt?.evaluations?.[q.questionId];
-                const isEssay = q.type === "essay";
+                const isEssay = q.type === "essay" || (!q.choices || q.choices.length === 0);
                 const isMCQCorrect = !isEssay && studentAns === q.correctIndex;
+                const isPendingEssay = isEssay && (!qEval || qEval.isPending);
                 const essayScore = qEval ? Number(qEval.earnedPoints ?? 0) : 0;
-                const isEssayFull = isEssay && qEval && essayScore >= q.points;
-                const isEssayPartial = isEssay && qEval && essayScore > 0 && essayScore < q.points;
+                const isEssayFull = isEssay && qEval && !isPendingEssay && essayScore >= q.points;
+                const isEssayPartial = isEssay && qEval && !isPendingEssay && essayScore > 0 && essayScore < q.points;
 
                 return (
                   <div
                     key={q.questionId}
-                    className={`p-5 rounded-2xl border ${
+                    className={`p-5 rounded-2xl border transition-all duration-300 ${
                       isEssay
-                        ? qEval
-                          ? isEssayFull
-                            ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800"
-                            : isEssayPartial
-                            ? "bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800"
-                            : "bg-red-50/70 dark:bg-red-950/30 border-red-300 dark:border-red-800"
-                          : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700"
+                        ? isPendingEssay
+                          ? "bg-cyan-50/50 dark:bg-cyan-950/25 border-cyan-300 dark:border-cyan-700/60 shadow-sm"
+                          : isEssayFull
+                          ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800"
+                          : isEssayPartial
+                          ? "bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800"
+                          : "bg-red-50/70 dark:bg-red-950/30 border-red-300 dark:border-red-800"
                         : isMCQCorrect
                         ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
                         : "bg-red-50/70 dark:bg-red-950/30 border-red-200 dark:border-red-800"
@@ -1169,22 +1291,28 @@ export default function TakeExamPage() {
                     <div className="flex items-center justify-between text-xs font-black">
                       <span className="text-slate-500 dark:text-slate-400">سؤال {qIdx + 1}</span>
                       <span
-                        className={`px-3 py-1 rounded-xl font-bold flex items-center gap-1.5 ${
+                        className={`px-3 py-1 rounded-xl font-bold flex items-center gap-1.5 transition-colors ${
                           isEssay
-                            ? qEval
-                              ? isEssayFull
-                                ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300"
-                                : isEssayPartial
-                                ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300"
-                                : "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300"
-                              : "bg-cyan-100 dark:bg-cyan-900/60 text-[#0077B6] dark:text-cyan-300"
+                            ? isPendingEssay
+                              ? "bg-cyan-100 dark:bg-cyan-900/70 text-[#0077B6] dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800"
+                              : isEssayFull
+                              ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300"
+                              : isEssayPartial
+                              ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300"
+                              : "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300"
                             : isMCQCorrect
                             ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300"
                             : "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300"
                         }`}
                       >
                         {isEssay ? (
-                          qEval ? (
+                          isPendingEssay ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin text-[#0077B6] dark:text-cyan-400" />
+                              <span>جاري التصحيح بالـ AI...</span>
+                              <span className="opacity-80 font-mono">({q.points} درجات)</span>
+                            </>
+                          ) : qEval ? (
                             <>
                               <span>{isEssayFull ? "إجابة مقالية صحيحة ✓" : isEssayPartial ? "إجابة مقالية جزئية" : "إجابة مقالية خاطئة ✗"}</span>
                               <span className="opacity-90 font-black">({essayScore} / {q.points} درجة)</span>
@@ -1288,7 +1416,32 @@ export default function TakeExamPage() {
                           </div>
 
                           {/* AI Evaluation & Correction Card */}
-                          {qEval && (
+                          {isPendingEssay ? (
+                            <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-50/90 to-blue-50/90 dark:from-cyan-950/40 dark:to-blue-950/40 border border-cyan-300 dark:border-cyan-700/70 space-y-2.5 shadow-sm">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-xl bg-cyan-100 dark:bg-cyan-900/60 text-[#0077B6] dark:text-cyan-300 flex items-center justify-center">
+                                    <Sparkles size={15} className="animate-pulse" />
+                                  </div>
+                                  <div>
+                                    <span className="font-black text-xs text-slate-900 dark:text-white block">
+                                      جاري مراجعة وتحليل الحل بالذكاء الاصطناعي (AI)...
+                                    </span>
+                                    <span className="text-[11px] font-bold text-[#0077B6] dark:text-cyan-400">
+                                      {hasImage ? "يتم الآن فحص الصورة وقراءة خط اليد ومطابقتها بالنموذج" : "يتم الآن مطابقة إجابتك النصية مع نموذج الإجابة"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-cyan-200 dark:border-cyan-700 text-[#0077B6] dark:text-cyan-300 flex items-center gap-1.5 shadow-sm">
+                                  <Loader2 size={12} className="animate-spin" />
+                                  <span>قيد التقييم</span>
+                                </span>
+                              </div>
+                              <p className="text-xs font-bold text-slate-600 dark:text-slate-300 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-3 rounded-xl border border-cyan-100 dark:border-cyan-900">
+                                ⏳ يتم فحص إجابتك بدقة بواسطة الذكاء الاصطناعي، وستظهر الدرجة المعتمدة والتقييم التفصيلي هنا تلقائياً في غضون ثوانٍ دون الحاجة لتحديث الصفحة.
+                              </p>
+                            </div>
+                          ) : qEval ? (
                             <div className={`p-4 rounded-2xl border space-y-2.5 ${
                               isEssayFull
                                 ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800"
@@ -1340,7 +1493,7 @@ export default function TakeExamPage() {
                                 </div>
                               )}
                             </div>
-                          )}
+                          ) : null}
 
                           {/* Model Answer Card */}
                           {q.modelAnswer && (
@@ -1390,11 +1543,11 @@ export default function TakeExamPage() {
                 </div>
                 <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white leading-relaxed">
                   {hasEssayQuestions
-                    ? "انتظر، يتم تصحيح امتحانك بالذكاء الاصطناعي (AI)..."
+                    ? "انتظر، جاري تسليم إجاباتك وبدء التصحيح الذكي..."
                     : "انتظر، يتم تسجيل إجاباتك واحتساب النتيجة..."}
                 </h3>
                 <p className="text-sm sm:text-base font-bold text-[#0077B6] dark:text-cyan-400">
-                  في غضون ثوانٍ سيتم نقلك لترى درجتك ونموذج الإجابة
+                  سيتم نقلك فوراً لصفحة المراجعة وتصحيح الأسئلة لحظياً
                 </p>
               </div>
 
