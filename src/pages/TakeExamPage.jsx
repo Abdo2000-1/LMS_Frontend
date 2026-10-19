@@ -1105,6 +1105,16 @@ export default function TakeExamPage() {
                       {q.prompt}
                     </p>
 
+                    {q.questionImageUrl && (
+                      <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 my-2 max-w-md mx-auto">
+                        <img
+                          src={q.questionImageUrl}
+                          alt="صورة السؤال"
+                          className="max-h-64 w-auto mx-auto rounded-lg object-contain"
+                        />
+                      </div>
+                    )}
+
                     {q.type !== "essay" && Array.isArray(q.choices) && (
                       <div className="space-y-2 pt-2 text-xs">
                         {q.choices.map((c, cIdx) => {

@@ -130,6 +130,9 @@ export function buildCourseContent(course = {}) {
 }
 
 function extractErrorMessage(error) {
+  if (typeof error?.response?.data === "string" && error.response.data.trim()) {
+    return error.response.data.trim();
+  }
   return (
     error?.response?.data?.detail ||
     error?.response?.data?.title ||
@@ -427,16 +430,64 @@ export async function createExam(payload) {
       isPublished: payload.isPublished !== false,
       allowRetake: payload.allowRetake !== false,
       minutes: Number(payload.minutes || 30),
-      questions: (payload.questions || []).map((q, index) => ({
-        questionId: q.questionId || `question_${index + 1}`,
-        prompt: String(q.prompt || "").trim(),
-        questionImageUrl: String(q.questionImageUrl || "").trim(),
-        choices: (q.choices || []).map((c) => String(c || "").trim()).filter(Boolean),
-        correctIndex: Number(q.correctIndex || 0),
-        points: Number(q.points || 1),
-      })),
+      questions: (payload.questions || []).map((q, index) => {
+        const isEssay = String(q.type || "").toLowerCase() === "essay";
+        return {
+          questionId: q.questionId || `question_${index + 1}`,
+          type: isEssay ? "essay" : "mcq",
+          prompt: String(q.prompt || "").trim(),
+          questionImageUrl: String(q.questionImageUrl || "").trim(),
+          choices: isEssay ? [] : (q.choices || []).map((c) => String(c || "").trim()).filter(Boolean),
+          correctIndex: isEssay ? 0 : Number(q.correctIndex || 0),
+          points: Math.max(1, Number(q.points || 1)),
+          modelAnswer: isEssay && q.modelAnswer ? String(q.modelAnswer).trim() : null,
+          gradingRubric: isEssay && q.gradingRubric ? String(q.gradingRubric).trim() : null,
+        };
+      }),
     }, requestConfig);
     return mapExam(data);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function updateExam(examId, payload) {
+  try {
+    const { data } = await apiClient.put(`/api/exams/${examId}`, {
+      courseId: payload.courseId || null,
+      title: String(payload.title || "").trim(),
+      description: String(payload.description || "").trim(),
+      imageUrl: String(payload.imageUrl || payload.thumbnailUrl || "").trim(),
+      price: payload.isFree ? 0 : Number(payload.price || 0),
+      isFree: Boolean(payload.isFree),
+      isPublished: payload.isPublished !== false,
+      allowRetake: payload.allowRetake !== false,
+      minutes: Number(payload.minutes || 30),
+      questions: (payload.questions || []).map((q, index) => {
+        const isEssay = String(q.type || "").toLowerCase() === "essay";
+        return {
+          questionId: q.questionId || `question_${index + 1}`,
+          type: isEssay ? "essay" : "mcq",
+          prompt: String(q.prompt || "").trim(),
+          questionImageUrl: String(q.questionImageUrl || "").trim(),
+          choices: isEssay ? [] : (q.choices || []).map((c) => String(c || "").trim()).filter(Boolean),
+          correctIndex: isEssay ? 0 : Number(q.correctIndex || 0),
+          points: Math.max(1, Number(q.points || 1)),
+          modelAnswer: isEssay && q.modelAnswer ? String(q.modelAnswer).trim() : null,
+          gradingRubric: isEssay && q.gradingRubric ? String(q.gradingRubric).trim() : null,
+        };
+      }),
+    }, requestConfig);
+    return mapExam(data);
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function updateExamRetake(examId, allowRetake) {
+  try {
+    const { data } = await apiClient.patch(`/api/exams/${examId}/retake`, { allowRetake: Boolean(allowRetake) }, requestConfig);
+    return data;
   } catch (error) {
     throw new Error(extractErrorMessage(error));
   }
@@ -715,6 +766,8 @@ export async function uploadExamAnswerImage(file) {
     throw new Error(extractErrorMessage(error));
   }
 }
+
+export const uploadExamImage = uploadExamAnswerImage;
 
 export async function submitExamAttempt({ examId, answers, textAnswers = {}, timeSpentSeconds = 0 }) {
   try {

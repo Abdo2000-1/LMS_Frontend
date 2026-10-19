@@ -11,6 +11,7 @@ import Register from "./pages/Register.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import TeacherDashboard from "./pages/TeacherDashboard.jsx";
 import AddExamPage from "./pages/AddExamPage.jsx";
+import EditExamsPage from "./pages/EditExamsPage.jsx";
 import AddQuizPage from "./pages/AddQuizPage.jsx";
 import TermsPage from "./pages/TermsPage.jsx";
 import DeveloperMaster from "./pages/DeveloperMaster.jsx";
@@ -101,6 +102,14 @@ export default function App() {
                   element={
                     <ProtectedRoute allowRoles={["teacher"]}>
                       <AddExamPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/teacher/edit-exams"
+                  element={
+                    <ProtectedRoute allowRoles={["teacher", "admin", "developer"]}>
+                      <EditExamsPage />
                     </ProtectedRoute>
                   }
                 />

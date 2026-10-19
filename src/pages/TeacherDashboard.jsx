@@ -70,6 +70,7 @@ import apiClient from "../lib/apiClient.js";
 import AccessCodeManager from "../components/AccessCodeManager.jsx";
 import TeacherEssayGrader from "../components/TeacherEssayGrader.jsx";
 import StandaloneLectureForm from "../components/StandaloneLectureForm.jsx";
+import EditExamsPage from "./EditExamsPage.jsx";
 import { KeyRound, FileEdit, Video, UserX, XCircle } from "lucide-react";
 
 const tabs = [
@@ -84,6 +85,7 @@ const tabs = [
   { id: "add-standalone-lecture", label: "إضافة محاضرة مستقلة", icon: Video },
   { id: "add-quiz", label: "إضافة كويز جديد (AI)", icon: HelpCircle },
   { id: "add-exam", label: "إضافة امتحان جديد", icon: FileText },
+  { id: "edit-exams", label: "تعديل الامتحان", icon: FileEdit },
 ];
 
 function formatDate(value) {
@@ -2838,7 +2840,11 @@ export default function TeacherDashboard() {
           </section>
         )}
 
-        {/* Legacy inline exam builder kept disabled after moving exams to a standalone page. */}
+        {activeTab === "edit-exams" && (
+          <div className="-mx-4 sm:-mx-6 -my-6">
+            <EditExamsPage />
+          </div>
+        )}
         {false && activeTab === "add-exam" && (
           <section className="bg-white border border-cyan-100 rounded-3xl p-6 shadow-sm space-y-6 text-right">
             <div className="border-b border-slate-100 pb-3">
