@@ -581,10 +581,24 @@ export default function TakeExamPage() {
                   </div>
                 )}
 
-                <div className="pt-2 flex items-center justify-center gap-3">
+                <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+                  {priorAttempt && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResult(priorAttempt);
+                        setReviewMode(true);
+                        setExamState("result");
+                      }}
+                      className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] hover:opacity-95 text-white text-xs font-black transition flex items-center gap-2 shadow-md shadow-cyan-600/20"
+                    >
+                      <BookOpen size={15} />
+                      <span>عرض نتيجتي ومراجعة الإجابات</span>
+                    </button>
+                  )}
                   <Link
                     to="/"
-                    className="px-6 py-3 rounded-2xl bg-[#0077B6] hover:bg-[#00A8E8] text-white text-xs font-black transition flex items-center gap-2 shadow-md shadow-cyan-600/20"
+                    className="px-6 py-3 rounded-2xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-black transition flex items-center gap-2"
                   >
                     <Home size={15} />
                     <span>العودة للرئيسية</span>
@@ -1077,7 +1091,7 @@ export default function TakeExamPage() {
               </h3>
 
               {questions.map((q, qIdx) => {
-                const studentAns = result.answers?.[q.questionId];
+                const studentAns = result.answers?.[q.questionId] ?? priorAttempt?.answers?.[q.questionId];
                 const qEval = result.evaluations?.[q.questionId] || priorAttempt?.evaluations?.[q.questionId];
                 const isEssay = q.type === "essay";
                 const isMCQCorrect = !isEssay && studentAns === q.correctIndex;
@@ -1179,7 +1193,7 @@ export default function TakeExamPage() {
 
                     {/* Essay Review: Student answer (text and/or image), AI Evaluation/Correction, & Model Answer */}
                     {isEssay && (() => {
-                      const essayData = parseEssayAnswer(studentAns || result.textAnswers?.[q.questionId]);
+                      const essayData = parseEssayAnswer(studentAns || result.textAnswers?.[q.questionId] || priorAttempt?.textAnswers?.[q.questionId]);
                       const hasText = Boolean(essayData.text);
                       const hasImage = Boolean(essayData.imageUrl);
 

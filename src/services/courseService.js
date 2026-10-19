@@ -777,11 +777,13 @@ export async function submitExamAttempt({ examId, answers, textAnswers = {}, tim
       timeSpentSeconds: Number(timeSpentSeconds || 0),
     }, requestConfig);
     return {
+      id: data.id,
       earnedPoints: data.earnedPoints,
       totalPoints: data.totalPoints,
       percentage: data.percentage,
       timeSpentSeconds: data.timeSpentSeconds ?? Number(timeSpentSeconds || 0),
       createdAt: data.createdAt,
+      evaluations: data.evaluations || {},
     };
   } catch (error) {
     throw new Error(extractErrorMessage(error));
