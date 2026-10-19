@@ -142,7 +142,6 @@ export default function TakeExamPage() {
   }, [exam, isTeacherOrAdmin]);
 
   const priorAttempt = useMemo(() => {
-    if (isTeacherOrAdmin) return null; // Teachers can always test/re-enter freely
     if (!exam) return null;
     if (exam.lastAttempt) return exam.lastAttempt;
     const fromUser = user?.quizResults?.[exam.courseId]?.[exam.id] || user?.quizResults?.[exam.id];
@@ -152,9 +151,9 @@ export default function TakeExamPage() {
       if (saved) return JSON.parse(saved);
     } catch {}
     return null;
-  }, [exam, user, isTeacherOrAdmin]);
+  }, [exam, user]);
 
-  const hasCompletedAttempt = Boolean(!isTeacherOrAdmin && (priorAttempt || (isRetakeForbidden && exam?.hasAttempted)));
+  const hasCompletedAttempt = Boolean(priorAttempt || (isRetakeForbidden && exam?.hasAttempted));
 
   // Refs for access inside native event handlers
   const answersRef = useRef(answers);
@@ -221,13 +220,19 @@ export default function TakeExamPage() {
       });
 
       try {
-        localStorage.setItem(`lms_exam_attempted_${exam.id}`, JSON.stringify(res));
+        localStorage.setItem(`lms_exam_attempted_${exam.id}`, JSON.stringify({
+          ...res,
+          answers: combinedForReview,
+          textAnswers,
+          evaluations: res?.evaluations || {},
+        }));
       } catch {}
 
       setResult({
         ...res,
         answers: combinedForReview,
         textAnswers,
+        evaluations: res?.evaluations || {},
         timeSpentSeconds: spent,
       });
 
@@ -1073,15 +1078,26 @@ export default function TakeExamPage() {
 
               {questions.map((q, qIdx) => {
                 const studentAns = result.answers?.[q.questionId];
-                const isCorrect = q.type !== "essay" && studentAns === q.correctIndex;
+                const qEval = result.evaluations?.[q.questionId] || priorAttempt?.evaluations?.[q.questionId];
+                const isEssay = q.type === "essay";
+                const isMCQCorrect = !isEssay && studentAns === q.correctIndex;
+                const essayScore = qEval ? Number(qEval.earnedPoints ?? 0) : 0;
+                const isEssayFull = isEssay && qEval && essayScore >= q.points;
+                const isEssayPartial = isEssay && qEval && essayScore > 0 && essayScore < q.points;
 
                 return (
                   <div
                     key={q.questionId}
                     className={`p-5 rounded-2xl border ${
-                      q.type === "essay"
-                        ? "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700"
-                        : isCorrect
+                      isEssay
+                        ? qEval
+                          ? isEssayFull
+                            ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800"
+                            : isEssayPartial
+                            ? "bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800"
+                            : "bg-red-50/70 dark:bg-red-950/30 border-red-300 dark:border-red-800"
+                          : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700"
+                        : isMCQCorrect
                         ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
                         : "bg-red-50/70 dark:bg-red-950/30 border-red-200 dark:border-red-800"
                     } space-y-3 text-right`}
@@ -1089,15 +1105,34 @@ export default function TakeExamPage() {
                     <div className="flex items-center justify-between text-xs font-black">
                       <span className="text-slate-500 dark:text-slate-400">سؤال {qIdx + 1}</span>
                       <span
-                        className={`px-3 py-1 rounded-xl font-bold ${
-                          q.type === "essay"
-                            ? "bg-cyan-100 dark:bg-cyan-900/60 text-[#0077B6] dark:text-cyan-300"
-                            : isCorrect
+                        className={`px-3 py-1 rounded-xl font-bold flex items-center gap-1.5 ${
+                          isEssay
+                            ? qEval
+                              ? isEssayFull
+                                ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300"
+                                : isEssayPartial
+                                ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300"
+                                : "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300"
+                              : "bg-cyan-100 dark:bg-cyan-900/60 text-[#0077B6] dark:text-cyan-300"
+                            : isMCQCorrect
                             ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300"
                             : "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300"
                         }`}
                       >
-                        {q.type === "essay" ? "سؤال مقالي" : isCorrect ? "إجابة صحيحة ✓" : "إجابة خاطئة ✗"}
+                        {isEssay ? (
+                          qEval ? (
+                            <>
+                              <span>{isEssayFull ? "إجابة مقالية صحيحة ✓" : isEssayPartial ? "إجابة مقالية جزئية" : "إجابة مقالية خاطئة ✗"}</span>
+                              <span className="opacity-90 font-black">({essayScore} / {q.points} درجة)</span>
+                            </>
+                          ) : (
+                            <span>سؤال مقالي ({q.points} درجات)</span>
+                          )
+                        ) : isMCQCorrect ? (
+                          <span>إجابة صحيحة ✓ ({q.points} درجة)</span>
+                        ) : (
+                          <span>إجابة خاطئة ✗ (0 / {q.points})</span>
+                        )}
                       </span>
                     </div>
 
@@ -1142,14 +1177,15 @@ export default function TakeExamPage() {
                       </div>
                     )}
 
-                    {/* Essay Review: Student answer (text and/or image) & Model Answer */}
-                    {q.type === "essay" && (() => {
+                    {/* Essay Review: Student answer (text and/or image), AI Evaluation/Correction, & Model Answer */}
+                    {isEssay && (() => {
                       const essayData = parseEssayAnswer(studentAns || result.textAnswers?.[q.questionId]);
                       const hasText = Boolean(essayData.text);
                       const hasImage = Boolean(essayData.imageUrl);
 
                       return (
                         <div className="space-y-3 pt-2 text-xs">
+                          {/* Student answer card */}
                           <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
                             <span className="block font-black text-slate-500 dark:text-slate-400">
                               إجابتك المقدمة:
@@ -1187,6 +1223,62 @@ export default function TakeExamPage() {
                             )}
                           </div>
 
+                          {/* AI Evaluation & Correction Card */}
+                          {qEval && (
+                            <div className={`p-4 rounded-2xl border space-y-2.5 ${
+                              isEssayFull
+                                ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800"
+                                : isEssayPartial
+                                ? "bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800"
+                                : "bg-red-50/80 dark:bg-red-950/30 border-red-300 dark:border-red-800"
+                            }`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <Sparkles size={16} className={isEssayFull ? "text-emerald-600" : isEssayPartial ? "text-amber-600" : "text-red-600"} />
+                                  <span className="font-black text-xs text-slate-900 dark:text-white">
+                                    تصحيح وتقييم الذكاء الاصطناعي (AI Correction):
+                                  </span>
+                                </div>
+                                <span className="text-xs font-black px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white shadow-sm">
+                                  الدرجة المحتسبة: {essayScore} من {q.points}
+                                </span>
+                              </div>
+
+                              {qEval.feedback && (
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
+                                  {qEval.feedback}
+                                </p>
+                              )}
+
+                              {Array.isArray(qEval.strengths) && qEval.strengths.length > 0 && (
+                                <div className="pt-1">
+                                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block mb-0.5">
+                                    ✓ نقاط القوة:
+                                  </span>
+                                  <ul className="list-disc list-inside text-[11px] text-slate-700 dark:text-slate-300 space-y-0.5">
+                                    {qEval.strengths.map((s, idx) => (
+                                      <li key={idx}>{s}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {Array.isArray(qEval.missingPoints) && qEval.missingPoints.length > 0 && (
+                                <div className="pt-1">
+                                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 block mb-0.5">
+                                    ⚠ النقاط الناقصة أو التصويب:
+                                  </span>
+                                  <ul className="list-disc list-inside text-[11px] text-slate-700 dark:text-slate-300 space-y-0.5">
+                                    {qEval.missingPoints.map((m, idx) => (
+                                      <li key={idx}>{m}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Model Answer Card */}
                           {q.modelAnswer && (
                             <div className="p-4 rounded-2xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800 space-y-1">
                               <span className="block font-black text-[#0077B6] dark:text-[#00A8E8]">
