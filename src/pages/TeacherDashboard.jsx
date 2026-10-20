@@ -73,7 +73,7 @@ import StandaloneLectureForm from "../components/StandaloneLectureForm.jsx";
 import EditExamsPage from "./EditExamsPage.jsx";
 import ExamRetakeManager from "../components/ExamRetakeManager.jsx";
 import { getAllRetakeRequests } from "../services/courseService.js";
-import { KeyRound, FileEdit, Video, UserX, XCircle } from "lucide-react";
+import { KeyRound, FileEdit, Video, UserX, XCircle, RotateCcw } from "lucide-react";
 
 const tabs = [
   { id: "courses", label: "الكورسات الكاملة", icon: BookOpen },
