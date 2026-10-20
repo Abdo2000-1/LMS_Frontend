@@ -22,6 +22,7 @@ import {
   Eye,
   FileQuestion,
   Lock,
+  Calendar,
   Camera,
   UploadCloud,
   Trash2,
@@ -216,6 +217,38 @@ export default function TakeExamPage() {
     return false;
   }, [isTeacherOrAdmin, exam, user]);
 
+  // 48-Hour Review Lock calculation for comprehensive standalone exams
+  const attemptDate = result?.createdAt || priorAttempt?.createdAt || exam?.lastAttempt?.createdAt;
+  const is48HoursPassed = attemptDate
+    ? (Date.now() - new Date(attemptDate).getTime()) >= 48 * 60 * 60 * 1000
+    : false;
+  const isReviewLocked = !isTeacherOrAdmin && (result?.isReviewLocked ?? (!is48HoursPassed && !!attemptDate));
+  const reviewUnlockDate = attemptDate
+    ? new Date(new Date(attemptDate).getTime() + 48 * 60 * 60 * 1000)
+    : null;
+
+  const [remainingReviewTime, setRemainingReviewTime] = useState("");
+
+  useEffect(() => {
+    if (!isReviewLocked || !reviewUnlockDate) return;
+    const updateCountdown = () => {
+      const diffMs = reviewUnlockDate.getTime() - Date.now();
+      if (diffMs <= 0) {
+        setRemainingReviewTime("متاحة الآن");
+        return;
+      }
+      const totalSeconds = Math.floor(diffMs / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      setRemainingReviewTime(`${hours} ساعة و ${minutes} دقيقة و ${seconds} ثانية`);
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [isReviewLocked, reviewUnlockDate]);
+
   // Clean up legacy un-scoped localStorage items that previously bled teacher attempts to students
   useEffect(() => {
     if (exam?.id) {
@@ -396,9 +429,11 @@ export default function TakeExamPage() {
         textAnswers,
         evaluations: res?.evaluations || {},
         timeSpentSeconds: spent,
+        createdAt: res?.createdAt || new Date().toISOString(),
+        isReviewLocked: res?.isReviewLocked ?? (!isTeacherOrAdmin),
       });
 
-      setReviewMode(true);
+      setReviewMode(isTeacherOrAdmin);
       setExamState("result");
       await refreshProfile?.();
     } catch (err) {
@@ -1484,16 +1519,63 @@ export default function TakeExamPage() {
               </div>
             </div>
 
+            {/* 48-Hour Exam Review Lock Card for Students */}
+            {isReviewLocked && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-2xl mx-auto p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-slate-50 dark:from-amber-950/40 dark:via-slate-900 dark:to-slate-900 border-2 border-amber-300 dark:border-amber-700/60 shadow-md text-center space-y-4"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-inner">
+                  <Lock size={26} />
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                    🔒 مراجعة الأسئلة والإجابات النموذجية ستُتاح بعد 48 ساعة
+                  </h3>
+                  <p className="text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-300 leading-relaxed max-w-lg mx-auto">
+                    لضمان سرية ونزاهة الاختبار الشامل وتكافؤ الفرص بين جميع الطلاب، يمكنك الاطلاع على نتيجتك المحققة أعلاه، بينما سيتم فتح نموذج الإجابة وتصحيح الأسئلة بالتفصيل بعد مرور 48 ساعة من تسليمك للاختبار.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-right">
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-amber-200 dark:border-slate-700 space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 block">موعد إتاحة نموذج الإجابة:</span>
+                    <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <Calendar size={13} className="text-amber-500" />
+                      <span>{reviewUnlockDate ? reviewUnlockDate.toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" }) : "بعد 48 ساعة"}</span>
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-amber-200 dark:border-slate-700 space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 block">الوقت المتبقي لفتح المراجعة:</span>
+                    <span className="text-xs font-black text-amber-600 dark:text-amber-400 flex items-center gap-1.5 font-mono">
+                      <Clock size={13} className="text-amber-500 animate-pulse" />
+                      <span>{remainingReviewTime || "48 ساعة"}</span>
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* Action Buttons */}
             <div className="flex flex-wrap items-center justify-center gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setReviewMode((prev) => !prev)}
-                className="px-6 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-black text-slate-800 dark:text-slate-200 transition flex items-center gap-2"
-              >
-                <Eye size={16} />
-                <span>{reviewMode ? "إخفاء نموذج الإجابة" : "عرض ومراجعة الإجابات النموذجية"}</span>
-              </button>
+              {!isReviewLocked ? (
+                <button
+                  type="button"
+                  onClick={() => setReviewMode((prev) => !prev)}
+                  className="px-6 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-black text-slate-800 dark:text-slate-200 transition flex items-center gap-2"
+                >
+                  <Eye size={16} />
+                  <span>{reviewMode ? "إخفاء نموذج الإجابة" : "عرض ومراجعة الإجابات النموذجية"}</span>
+                </button>
+              ) : (
+                <div className="px-5 py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-black flex items-center gap-2">
+                  <Lock size={15} className="text-amber-600" />
+                  <span>المراجعة التفصيلية مقفلة (تتاح بعد 48 ساعة)</span>
+                </div>
+              )}
 
               {isTeacherOrAdmin ? (
                 <button
@@ -1557,8 +1639,8 @@ export default function TakeExamPage() {
             </div>
           </motion.div>
 
-          {/* Review Answers List */}
-          {reviewMode && (
+          {/* Review Answers List (Hidden completely during 48h review lock) */}
+          {reviewMode && !isReviewLocked && (
             <div className="space-y-4 pt-4">
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <BookOpen size={20} className="text-[#0077B6]" />
