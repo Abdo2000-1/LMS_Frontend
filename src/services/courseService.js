@@ -977,3 +977,21 @@ export async function getStudentExamAttemptDetail(examId, attemptId) {
     throw new Error(extractErrorMessage(error));
   }
 }
+
+export async function reviewTeacherEssay(examId, attemptId, payload) {
+  try {
+    const { data } = await apiClient.post(`/api/exams/${examId}/attempt/${attemptId}/teacher-review-essay`, payload, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function reEvaluateAttemptEssays(examId, attemptId) {
+  try {
+    const { data } = await apiClient.post(`/api/exams/${examId}/attempt/${attemptId}/re-evaluate-essays`, {}, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}

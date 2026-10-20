@@ -27,14 +27,18 @@ import {
   Check,
   TrendingUp,
   HelpCircle,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Star,
+  Save
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   subscribeExams,
   getExamStudentsReport,
-  getStudentExamAttemptDetail
+  getStudentExamAttemptDetail,
+  reviewTeacherEssay,
+  reEvaluateAttemptEssays
 } from "../services/courseService.js";
 
 function formatSeconds(sec) {
@@ -63,6 +67,10 @@ export default function TeacherExamResults({ initialExamId = null }) {
   const [loadingAttemptDetail, setLoadingAttemptDetail] = useState(false);
   const [activeQuestionIdx, setActiveQuestionIdx] = useState(0);
   const [previewImage, setPreviewImage] = useState(null);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reEvaluatingAi, setReEvaluatingAi] = useState(false);
+  const [customScores, setCustomScores] = useState({});
+  const [customFeedbacks, setCustomFeedbacks] = useState({});
 
   // 1. Fetch available exams list
   useEffect(() => {
@@ -117,6 +125,93 @@ export default function TeacherExamResults({ initialExamId = null }) {
       setSelectedAttemptId(null);
     } finally {
       setLoadingAttemptDetail(false);
+    }
+  };
+
+  // Teacher Essay Review / Override Submit
+  const handleTeacherReviewSubmit = async (questionId, score, teacherFeedback, approveAi = false) => {
+    if (!selectedExamId || !selectedAttemptId) return;
+    try {
+      setReviewSubmitting(true);
+      const res = await reviewTeacherEssay(selectedExamId, selectedAttemptId, {
+        questionId,
+        score: Number(score) || 0,
+        teacherFeedback: teacherFeedback || null,
+        approveAi
+      });
+
+      // Update attemptDetail questions locally
+      setAttemptDetail((prev) => {
+        if (!prev) return prev;
+        const updatedQuestions = prev.questions.map((q) => {
+          if (q.questionId === questionId) {
+            return {
+              ...q,
+              earnedPoints: res.questionScore,
+              isCorrect: res.questionScore >= (q.points * 0.5),
+              isTeacherReviewed: true,
+              teacherScore: res.questionScore,
+              teacherFeedback: teacherFeedback || q.feedback,
+              teacherReviewedAt: new Date().toISOString()
+            };
+          }
+          return q;
+        });
+
+        return {
+          ...prev,
+          earnedPoints: res.attemptTotalEarned,
+          percentage: res.attemptPercentage,
+          questions: updatedQuestions
+        };
+      });
+
+      // Update student row in reportData list
+      setReportData((prev) => {
+        if (!prev || !prev.students) return prev;
+        const updatedStudents = prev.students.map((st) => {
+          if (st.attemptId === selectedAttemptId) {
+            return {
+              ...st,
+              earnedPoints: Math.round(res.attemptTotalEarned),
+              percentage: res.attemptPercentage,
+              pendingTeacherReviewCount: Math.max(0, (st.pendingTeacherReviewCount || 1) - 1)
+            };
+          }
+          return st;
+        });
+        return {
+          ...prev,
+          students: updatedStudents
+        };
+      });
+    } catch (err) {
+      console.error("Error updating teacher essay review:", err);
+      alert(err.message || "فشل حفظ مراجعة السؤال المقالي");
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
+  // Re-evaluate Essays with AI using new prompt
+  const handleReEvaluateEssays = async () => {
+    if (!selectedExamId || !selectedAttemptId) return;
+    if (!window.confirm("هل تريد إعادة تصحيح جميع الأسئلة المقالية في هذا الامتحان بالذكاء الاصطناعي (AI) وتحديث الدرجة تلقائياً؟")) return;
+    try {
+      setReEvaluatingAi(true);
+      await reEvaluateAttemptEssays(selectedExamId, selectedAttemptId);
+      // Refresh attempt details
+      const detail = await getStudentExamAttemptDetail(selectedExamId, selectedAttemptId);
+      setAttemptDetail(detail);
+      // Refresh report
+      if (selectedExamId) {
+        loadReport(selectedExamId);
+      }
+    } catch (err) {
+      console.error("Error re-evaluating essays:", err);
+      alert(err.message || "تعذر إعادة تصحيح الأسئلة المقالية.");
+    } finally {
+      setReEvaluatingAi(false);
     }
   };
 
@@ -577,10 +672,18 @@ export default function TeacherExamResults({ initialExamId = null }) {
                       {/* Exam Status Badge */}
                       <td className="py-4 px-4 text-center">
                         {isCompleted ? (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[11px] font-black border border-emerald-300 dark:border-emerald-700">
-                            <CheckCircle2 size={12} />
-                            <span>تم الامتحان</span>
-                          </span>
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[11px] font-black border border-emerald-300 dark:border-emerald-700">
+                              <CheckCircle2 size={12} />
+                              <span>تم الامتحان</span>
+                            </span>
+                            {student.pendingTeacherReviewCount > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-black border border-amber-300 dark:border-amber-700">
+                                <AlertCircle size={10} />
+                                <span>مراجعة مقالي ({student.pendingTeacherReviewCount})</span>
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-black border border-slate-200 dark:border-slate-700">
                             <Clock size={12} />
@@ -775,6 +878,27 @@ export default function TeacherExamResults({ initialExamId = null }) {
                       </span>
                     </div>
                   </div>
+
+                  {/* Essay AI Re-evaluation & Teacher Fast Tools */}
+                  {attemptDetail.questions.some((q) => q.type === "essay") && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-950/40 dark:to-blue-950/40 border border-cyan-200 dark:border-cyan-800">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={18} className="text-[#0077B6] shrink-0" />
+                        <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                          يحتوي هذا الامتحان على أسئلة مقالية. يمكنك اعتماد درجات الـ AI أو تعديل درجات كل سؤال يدوياً من بالأسفل.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={reEvaluatingAi || reviewSubmitting}
+                        onClick={handleReEvaluateEssays}
+                        className="px-4 py-2 rounded-xl bg-[#0077B6] hover:bg-[#005f92] text-white text-xs font-black transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 shrink-0"
+                      >
+                        <RefreshCw size={13} className={reEvaluatingAi ? "animate-spin" : ""} />
+                        <span>{reEvaluatingAi ? "جاري إعادة التقييم بالـ AI..." : "🔄 إعادة تصحيح المقالي بالذكاء الاصطناعي"}</span>
+                      </button>
+                    </div>
+                  )}
 
                   {/* Question Number Pills Navigation */}
                   <div className="space-y-2">
@@ -985,12 +1109,119 @@ export default function TeacherExamResults({ initialExamId = null }) {
                                 <h4 className="text-xs font-black text-[#0077B6] dark:text-[#00A8E8] flex items-center gap-2">
                                   <Sparkles size={15} />
                                   <span>تقرير تصحيح الذكاء الاصطناعي (AI):</span>
+                                  <span className="mr-auto px-2 py-0.5 rounded-lg bg-[#0077B6]/10 text-[#0077B6] dark:text-[#00A8E8] text-[11px] font-black">
+                                    الدرجة المقترحة: {q.earnedPoints} / {q.points}
+                                  </span>
                                 </h4>
                                 <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
                                   {q.feedback}
                                 </p>
                               </div>
                             )}
+
+                            {/* Teacher Review & Grading Action Box */}
+                            <div className="p-4 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border-2 border-amber-300 dark:border-amber-700/80 space-y-3 shadow-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                                  <Award size={16} className="text-amber-600" />
+                                  <span>حكم وقرار المعلم (د. مينا مريد):</span>
+                                </h4>
+                                {q.isTeacherReviewed ? (
+                                  <span className="px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-[11px] font-black flex items-center gap-1 border border-emerald-300 dark:border-emerald-700">
+                                    <CheckCircle2 size={13} />
+                                    <span>تم اعتماد الدرجة يدوياً ({q.earnedPoints} من {q.points})</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-[11px] font-black flex items-center gap-1 border border-amber-300 dark:border-amber-700">
+                                    <AlertCircle size={13} />
+                                    <span>في انتظار قرار المعلم</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Quick Action Buttons */}
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={reviewSubmitting}
+                                  onClick={() => handleTeacherReviewSubmit(q.questionId, q.earnedPoints, null, true)}
+                                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                                  title="اعتماد تصحيح الـ AI كما هو دون تعديل"
+                                >
+                                  <CheckCircle2 size={14} />
+                                  <span>✅ اعتماد تصحيح الـ AI ({q.earnedPoints} د)</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={reviewSubmitting}
+                                  onClick={() => handleTeacherReviewSubmit(q.questionId, q.points, "إجابة صحيحة نموذجية معتمدة من المعلم.", false)}
+                                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                                  title="منح الطالب الدرجة كاملة"
+                                >
+                                  <Star size={14} className="fill-white" />
+                                  <span>⭐ منح الدرجة كاملة ({q.points}/{q.points})</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={reviewSubmitting}
+                                  onClick={() => handleTeacherReviewSubmit(q.questionId, 0, "إجابة غير صحيحة بعد مراجعة المعلم.", false)}
+                                  className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-black transition flex items-center gap-1.5 disabled:opacity-50"
+                                  title="احتساب خطأ 0 درجة"
+                                >
+                                  <XCircle size={14} />
+                                  <span>منح 0 درجة</span>
+                                </button>
+                              </div>
+
+                              {/* Custom Score Adjustment Form */}
+                              <div className="pt-2.5 border-t border-amber-200 dark:border-amber-800/60 grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
+                                <div className="md:col-span-3 space-y-1">
+                                  <label className="text-[11px] font-black text-slate-700 dark:text-slate-300 block">
+                                    الدرجة المحددة (من {q.points}):
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={q.points}
+                                    step="0.5"
+                                    value={customScores[q.questionId] ?? q.earnedPoints ?? 0}
+                                    onChange={(e) => setCustomScores({ ...customScores, [q.questionId]: parseFloat(e.target.value) || 0 })}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-black text-slate-900 dark:text-white"
+                                  />
+                                </div>
+
+                                <div className="md:col-span-6 space-y-1">
+                                  <label className="text-[11px] font-black text-slate-700 dark:text-slate-300 block">
+                                    ملاحظة المعلم للطالب (اختياري):
+                                  </label>
+                                  <input
+                                    type="text"
+                                    placeholder="مثال: أحسنت، أو راجع المطلوب الثاني..."
+                                    value={customFeedbacks[q.questionId] ?? (q.teacherFeedback || "")}
+                                    onChange={(e) => setCustomFeedbacks({ ...customFeedbacks, [q.questionId]: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-white"
+                                  />
+                                </div>
+
+                                <div className="md:col-span-3">
+                                  <button
+                                    type="button"
+                                    disabled={reviewSubmitting}
+                                    onClick={() => {
+                                      const score = customScores[q.questionId] ?? q.earnedPoints ?? 0;
+                                      const fb = customFeedbacks[q.questionId] || null;
+                                      handleTeacherReviewSubmit(q.questionId, score, fb, false);
+                                    }}
+                                    className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-black dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+                                  >
+                                    <Save size={14} />
+                                    <span>حفظ واعتماد</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         )}
 
