@@ -907,3 +907,54 @@ export function checkUserHasAccess(courseId, user, courseGrade = "") {
 
   return false;
 }
+
+
+export async function requestExamRetake({ examId, reason = "" }) {
+  try {
+    const { data } = await apiClient.post(`/api/exams/${examId}/retake-request`, { reason }, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function getExamRetakeStatus(examId) {
+  try {
+    const { data } = await apiClient.get(`/api/exams/${examId}/retake-request/status`, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function getAllRetakeRequests(status = "All") {
+  try {
+    const { data } = await apiClient.get(`/api/exams/retake-requests?status=${encodeURIComponent(status)}`, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function reviewRetakeRequest(requestId, { action = "approve", teacherNote = "" }) {
+  try {
+    const { data } = await apiClient.post(`/api/exams/retake-requests/${requestId}/review`, {
+      action,
+      teacherNote
+    }, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function unlockStudentExam({ examId, studentPhoneOrId }) {
+  try {
+    const { data } = await apiClient.post(`/api/exams/${examId}/unlock-student`, {
+      studentPhoneOrId
+    }, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}

@@ -71,6 +71,8 @@ import AccessCodeManager from "../components/AccessCodeManager.jsx";
 import TeacherEssayGrader from "../components/TeacherEssayGrader.jsx";
 import StandaloneLectureForm from "../components/StandaloneLectureForm.jsx";
 import EditExamsPage from "./EditExamsPage.jsx";
+import ExamRetakeManager from "../components/ExamRetakeManager.jsx";
+import { getAllRetakeRequests } from "../services/courseService.js";
 import { KeyRound, FileEdit, Video, UserX, XCircle } from "lucide-react";
 
 const tabs = [
@@ -78,6 +80,7 @@ const tabs = [
   { id: "standalone-lectures", label: "المحاضرات المنفردة", icon: Video },
   { id: "access-codes", label: "أكواد التفعيل (12 رقم)", icon: KeyRound },
   { id: "essay-grading", label: "تصحيح الأسئلة المقالية", icon: FileEdit },
+  { id: "retake-requests", label: "طلبات إعادة الامتحانات", icon: RotateCcw },
   { id: "students", label: "بيانات الطلاب", icon: Users },
   { id: "student-details", label: "تتبع وتفاصيل الطلاب", icon: NotebookText },
   { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet },
@@ -134,6 +137,7 @@ export default function TeacherDashboard() {
   const [students, setStudents] = useState([]);
   const [payments, setPayments] = useState([]);
   const [paymentRequests, setPaymentRequests] = useState([]);
+  const [retakePendingCount, setRetakePendingCount] = useState(0);
   const [attempts, setAttempts] = useState([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [selectedStudentDetail, setSelectedStudentDetail] = useState(null);
@@ -1109,7 +1113,7 @@ export default function TeacherDashboard() {
       active="/teacher/dashboard"
       activeTab={activeTab}
       onTabChange={handleTabChange}
-      badges={{ pendingRequests: summary.pendingRequests }}
+      badges={{ pendingRequests: summary.pendingRequests, retakeRequests: retakePendingCount }}
     >
       <div className="space-y-8 font-['Cairo',_sans-serif] text-slate-800" dir="rtl">
         
@@ -1168,7 +1172,7 @@ export default function TeacherDashboard() {
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isTabActive = activeTab === tab.id;
-            const badgeCount = tab.id === "incoming-requests" ? summary.pendingRequests : 0;
+            const badgeCount = tab.id === "incoming-requests" ? summary.pendingRequests : tab.id === "retake-requests" ? retakePendingCount : 0;
             return (
               <button
                 key={tab.id}
@@ -1200,6 +1204,11 @@ export default function TeacherDashboard() {
         {/* --- TAB: ESSAY GRADING --- */}
         {activeTab === "essay-grading" && (
           <TeacherEssayGrader />
+        )}
+
+        {/* --- TAB: EXAM RETAKE REQUESTS --- */}
+        {activeTab === "retake-requests" && (
+          <ExamRetakeManager />
         )}
 
         {/* --- TAB 1: CURRENT COURSES LIST (GRID view) --- */}

@@ -33,7 +33,7 @@ import {
   LogOut
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { getExamById, submitExamAttempt, uploadExamAnswerImage, gradeExamSingleEssay } from "../services/courseService.js";
+import { getExamById, submitExamAttempt, uploadExamAnswerImage, gradeExamSingleEssay, requestExamRetake, getExamRetakeStatus } from "../services/courseService.js";
 import { parseEssayAnswer, formatEssayAnswer, compressImageFile } from "../services/essayService.js";
 
 function formatTime(seconds) {
@@ -63,6 +63,11 @@ export default function TakeExamPage() {
   const [exitWarningModalOpen, setExitWarningModalOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [reviewMode, setReviewMode] = useState(false);
+  const [retakeStatus, setRetakeStatus] = useState(null);
+  const [retakeModalOpen, setRetakeModalOpen] = useState(false);
+  const [retakeReason, setRetakeReason] = useState("");
+  const [sendingRetake, setSendingRetake] = useState(false);
+  const [retakeSuccessMessage, setRetakeSuccessMessage] = useState("");
 
   // Network & persistence states
   const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
@@ -117,6 +122,7 @@ export default function TakeExamPage() {
         if (!mounted) return;
         if (!data) throw new Error("الامتحان غير موجود.");
         setExam(data);
+        if (data.retakeRequestStatus) setRetakeStatus(data.retakeRequestStatus);
         setTimeLeft((data.minutes || 30) * 60);
       })
       .catch((err) => {
@@ -169,8 +175,9 @@ export default function TakeExamPage() {
   const isRetakeForbidden = useMemo(() => {
     if (isTeacherOrAdmin) return false;
     if (!exam) return false;
+    if (exam.retakeRequestStatus === "Approved" || retakeStatus === "Approved") return false;
     return exam.allowRetake === false || exam.id === "13629ef7-7c19-4c55-bb34-52a759780c66";
-  }, [exam, isTeacherOrAdmin]);
+  }, [exam, isTeacherOrAdmin, retakeStatus]);
 
   const priorAttempt = useMemo(() => {
     if (!exam) return null;
@@ -546,6 +553,25 @@ export default function TakeExamPage() {
     };
   }, [examState]);
 
+  async function handleSendRetakeRequest(e) {
+    if (e) e.preventDefault();
+    if (sendingRetake) return;
+    try {
+      setSendingRetake(true);
+      await requestExamRetake({ examId, reason: retakeReason.trim() });
+      setRetakeStatus("Pending");
+      setRetakeSuccessMessage("تم إرسال طلب إعادة الامتحان بنجاح إلى المعلم.");
+      setTimeout(() => {
+        setRetakeModalOpen(false);
+        setRetakeSuccessMessage("");
+      }, 2200);
+    } catch (err) {
+      alert(err.message || "فشل إرسال الطلب، يرجى المحاولة لاحقاً.");
+    } finally {
+      setSendingRetake(false);
+    }
+  }
+
   function handleStartExam() {
     if (isRetakeForbidden && hasCompletedAttempt) {
       alert("هذا الامتحان غير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم.");
@@ -866,6 +892,76 @@ export default function TakeExamPage() {
                     <span>درجتك المسجلة: {priorAttempt.earnedPoints ?? 0} من {priorAttempt.totalPoints ?? totalPoints} ({priorAttempt.percentage ?? 0}%)</span>
                   </div>
                 )}
+
+                {/* Retake Request Status / Button in Intro */}
+                <div className="pt-2">
+                  {retakeStatus === "Pending" ? (
+                    <div className="p-4 rounded-2xl bg-amber-100/70 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-center space-y-2">
+                      <div className="inline-flex items-center gap-2 text-amber-900 dark:text-amber-200 text-xs font-black">
+                        <Clock size={16} className="animate-spin text-amber-600" />
+                        <span>طلب إعادة الامتحان قيد المراجعة حالياً من قِبل المعلم</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        سيتم إتاحة الامتحان فور قبول المعلم لطلبك.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const s = await getExamRetakeStatus(examId);
+                            if (s?.status) {
+                              setRetakeStatus(s.status);
+                              if (s.status === "Approved") window.location.reload();
+                            }
+                          } catch (err) {}
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-amber-800 dark:text-amber-200 bg-amber-200/60 dark:bg-amber-900/50 rounded-xl hover:bg-amber-200 transition"
+                      >
+                        <RefreshCw size={12} />
+                        <span>تحديث حالة الطلب</span>
+                      </button>
+                    </div>
+                  ) : retakeStatus === "Approved" ? (
+                    <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 text-center space-y-2">
+                      <div className="inline-flex items-center gap-2 text-emerald-800 dark:text-emerald-200 text-xs font-black">
+                        <CheckCircle2 size={16} />
+                        <span>تمت الموافقة على طلبك من قِبل المعلم! يمكنك بدء الامتحان الآن.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleStartExam}
+                        className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white text-xs font-black transition flex items-center gap-2 mx-auto shadow-md"
+                      >
+                        <RotateCcw size={15} />
+                        <span>بدء محاولة الامتحان الجديدة</span>
+                      </button>
+                    </div>
+                  ) : retakeStatus === "Rejected" ? (
+                    <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-700 text-center space-y-2">
+                      <div className="inline-flex items-center gap-2 text-rose-800 dark:text-rose-200 text-xs font-black">
+                        <AlertCircle size={16} />
+                        <span>تم رفض طلب الإعادة السابق من المعلم</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRetakeModalOpen(true)}
+                        className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition inline-flex items-center gap-1.5"
+                      >
+                        <Send size={13} />
+                        <span>إرسال طلب جديد مع ذكر السبب</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setRetakeModalOpen(true)}
+                      className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-white text-xs font-black transition flex items-center gap-2 mx-auto shadow-md shadow-orange-500/20"
+                    >
+                      <Send size={15} />
+                      <span>طلب إعادة الامتحان من المعلم</span>
+                    </button>
+                  )}
+                </div>
 
                 <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
                   {priorAttempt && (
@@ -1404,12 +1500,39 @@ export default function TakeExamPage() {
                   <RotateCcw size={16} />
                   <span>إعادة المحاولة</span>
                 </button>
-              ) : (
-                <div className="px-5 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs font-black flex items-center gap-2">
-                  <Lock size={15} />
-                  <span>هذا الامتحان غير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم (محاولة واحدة فقط)</span>
-                </div>
-              )}
+              ) : retakeStatus === "Pending" ? (
+                  <div className="px-5 py-2.5 rounded-2xl bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 text-xs font-black flex items-center gap-2">
+                    <Clock size={15} className="animate-spin text-amber-600" />
+                    <span>طلب إعادة الامتحان قيد المراجعة حالياً من قِبل المعلم</span>
+                  </div>
+                ) : retakeStatus === "Approved" ? (
+                  <button
+                    type="button"
+                    onClick={handleStartExam}
+                    className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white text-xs font-black transition flex items-center gap-2 shadow-sm"
+                  >
+                    <RotateCcw size={16} />
+                    <span>تم قبول طلبك! إعادة الامتحان الآن</span>
+                  </button>
+                ) : retakeStatus === "Rejected" ? (
+                  <button
+                    type="button"
+                    onClick={() => setRetakeModalOpen(true)}
+                    className="px-5 py-2.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-300 text-xs font-black transition flex items-center gap-2"
+                  >
+                    <Send size={15} />
+                    <span>طلب الإعادة رُفض - إرسال طلب جديد مع العذر</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setRetakeModalOpen(true)}
+                    className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-white text-xs font-black transition flex items-center gap-2 shadow-sm shadow-orange-500/20"
+                  >
+                    <Send size={15} />
+                    <span>طلب إعادة الامتحان من المعلم</span>
+                  </button>
+                )}
 
               <Link
                 to="/"
@@ -1926,6 +2049,82 @@ export default function TakeExamPage() {
                   إغلاق
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Retake Request Modal Dialog */}
+      <AnimatePresence>
+        {retakeModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xl text-right space-y-4"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-orange-100 dark:bg-orange-950 text-orange-600 flex items-center justify-center">
+                    <Send size={18} />
+                  </div>
+                  <h3 className="font-black text-slate-900 dark:text-white text-base">
+                    طلب إعادة الامتحان من المعلم
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRetakeModalOpen(false)}
+                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {retakeSuccessMessage ? (
+                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-center font-black text-sm">
+                  {retakeSuccessMessage}
+                </div>
+              ) : (
+                <form onSubmit={handleSendRetakeRequest} className="space-y-4">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-400 leading-relaxed">
+                    يمكنك إرسال طلب مباشر للمعلم للسماح لك بإعادة هذا الامتحان إذا واجهتك مشكلة تقنية أو عذر أثناء المحاولة السابقة.
+                  </p>
+
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5">
+                      سبب طلب الإعادة (اختياري):
+                    </label>
+                    <textarea
+                      value={retakeReason}
+                      onChange={(e) => setRetakeReason(e.target.value)}
+                      placeholder="مثال: حدث انقطاع في الإنترنت أو الكهرباء، أرجو إتاحة محاولة جديدة..."
+                      rows={3}
+                      className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setRetakeModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={sendingRetake}
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:opacity-95 disabled:opacity-50 text-white text-xs font-black transition flex items-center gap-1.5 shadow-md shadow-orange-500/20"
+                    >
+                      {sendingRetake ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                      <span>إرسال الطلب للمعلم</span>
+                    </button>
+                  </div>
+                </form>
+              )}
             </motion.div>
           </div>
         )}

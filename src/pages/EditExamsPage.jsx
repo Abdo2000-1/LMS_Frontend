@@ -378,6 +378,13 @@ export default function EditExamsPage() {
 
           <div className="flex flex-wrap items-center gap-2.5">
             <Link
+              to="/teacher/dashboard?tab=retake-requests"
+              className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black transition flex items-center gap-2 shadow-md shadow-amber-500/20"
+            >
+              <RotateCcw size={15} />
+              <span>طلبات إعادة الامتحانات</span>
+            </Link>
+            <Link
               to="/teacher/add-exam"
               className="px-5 py-2.5 rounded-2xl bg-[#0077B6] hover:bg-[#005f92] text-white text-xs font-black transition flex items-center gap-2 shadow-md shadow-cyan-500/10"
             >
