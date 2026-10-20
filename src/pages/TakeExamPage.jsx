@@ -262,8 +262,18 @@ export default function TakeExamPage() {
         setExamState("running");
         setRestoredNotice(true);
       } else {
-        // Expired while away
-        localStorage.removeItem(progressKey);
+        // Expired while away -> auto submit saved answers with full exam time spent
+        if (saved && (saved.answers || saved.answerImages)) {
+          if (Array.isArray(saved.questionIds) && saved.questionIds.length > 0 && baseQuestions.length > 0) {
+            const map = new Map(baseQuestions.map((q) => [q.questionId, q]));
+            const ordered = saved.questionIds.map((id) => map.get(id)).filter(Boolean);
+            if (ordered.length > 0) setShuffledList(ordered);
+          }
+          if (saved.answerImages) setAnswerImages(saved.answerImages);
+          performSubmission(saved.answers || {}, 0);
+        } else {
+          localStorage.removeItem(progressKey);
+        }
       }
     } catch (err) {
       console.warn("Failed to resume exam from localStorage:", err);
@@ -865,8 +875,11 @@ export default function TakeExamPage() {
                 <li>يمكنك التنقل بين الأسئلة بحرية وتمييز أي سؤال بعلامة 🚩 لمراجعته قبل التسليم.</li>
                 <li>يتم حفظ إجاباتك تلقائياً كل ثانية ولن تضيع في حال انقطاع الاتصال المؤقت.</li>
                 <li>عند انتهاء الوقت سيتم تسليم إجاباتك تلقائياً واحتساب النتيجة.</li>
-                <li className="text-red-600 dark:text-red-400 font-black">
-                  ⚠️ تنبيه مشدد: مغادرة شاشة الامتحان أو التبديل بين النوافذ والتطبيقات أثناء الامتحان تؤدي لإنذار فوري وتكرارها يسلّم الامتحان تلقائياً بالدرجة الحالية!
+                <li className="text-emerald-700 dark:text-emerald-400 font-black">
+                  ✅ حفظ تلقائي آمن: يتم حفظ تقدمك وإجاباتك تلقائياً كل ثانية. يمكنك الخروج أو إغلاق الهاتف والعودة في أي وقت لمتابعة الامتحان، ويستمر عداد الوقت بالعد حتى انتهاء المدة المقررة.
+                </li>
+                <li className="text-cyan-700 dark:text-cyan-300 font-black">
+                  📌 يتم تسليم وتصحيح الامتحان فقط في حالتين: عند ضغطك بنفسك على زر "تسليم الامتحان" أو عند انتهاء الوقت المحدد بالكامل.
                 </li>
               </ul>
             </div>
@@ -1956,10 +1969,10 @@ export default function TakeExamPage() {
 
               <div className="text-center space-y-2">
                 <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                  هل ترغب في مغادرة الامتحان وتسليمه الآن؟
+                  مغادرة شاشة الامتحان
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
-                  إجاباتك المسجلة محفوظة بالكامل في متصفحك. يمكنك المتابعة في أي وقت طالما أن وقت الامتحان لم ينتهِ، أو تأكيد تسليم الامتحان بالدرجة الحالية.
+                  جميع إجاباتك محفوظة بالكامل وعداد الوقت مستمر بالعد التنازلي. يمكنك الخروج والعودة لاحقاً لمتابعة الحل قبل انتهاء الوقت، أو تسليم الامتحان نهائياً الآن.
                 </p>
               </div>
 
@@ -1968,27 +1981,40 @@ export default function TakeExamPage() {
                 <p>الوقت المتبقي: <span className="font-mono font-black text-emerald-600 dark:text-emerald-400" dir="ltr">{formatTime(timeLeft)}</span></p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <div className="flex flex-col gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setExitWarningModalOpen(false)}
-                  className="py-3 px-4 rounded-2xl bg-[#0077B6] hover:bg-[#00A8E8] text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20"
+                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-[#0077B6] to-[#00A8E8] hover:opacity-95 text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20"
                 >
-                  <span>متابعة حل الامتحان</span>
+                  <span>متابعة حل الامتحان الآن</span>
                 </button>
 
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    setExitWarningModalOpen(false);
-                    handleFinalSubmit();
-                  }}
-                  className="py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-red-600/20"
-                >
-                  <Lock size={15} />
-                  <span>تأكيد التسليم والمغادرة</span>
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExitWarningModalOpen(false);
+                      navigate("/");
+                    }}
+                    className="py-2.5 px-3 rounded-2xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-black transition flex items-center justify-center gap-1.5"
+                  >
+                    <span>الخروج مؤقتاً (العودة لاحقاً)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setExitWarningModalOpen(false);
+                      handleFinalSubmit();
+                    }}
+                    className="py-2.5 px-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-sm shadow-red-600/20"
+                  >
+                    <Lock size={14} />
+                    <span>تسليم الامتحان نهائياً</span>
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
