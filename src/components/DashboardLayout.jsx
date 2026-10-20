@@ -16,7 +16,8 @@ import {
   KeyRound,
   FileEdit,
   Video,
-  RotateCcw
+  RotateCcw,
+  Award
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useBranding } from "../context/BrandingContext.jsx";
@@ -29,6 +30,7 @@ export const TEACHER_SIDEBAR_TABS = [
   { id: "access-codes", label: "أكواد التفعيل (12 رقم)", icon: KeyRound },
   { id: "essay-grading", label: "تصحيح الأسئلة المقالية", icon: FileEdit },
   { id: "retake-requests", label: "طلبات إعادة الامتحانات", icon: RotateCcw, hasBadge: true },
+  { id: "exam-results", label: "نتائج وكراسات الامتحانات", icon: Award },
   { id: "students", label: "بيانات الطلاب", icon: Users },
   { id: "student-details", label: "متابعة وتفاصيل الطلاب", icon: NotebookText },
   { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet, hasBadge: true },

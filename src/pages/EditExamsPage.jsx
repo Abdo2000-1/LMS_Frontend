@@ -378,6 +378,13 @@ export default function EditExamsPage() {
 
           <div className="flex flex-wrap items-center gap-2.5">
             <Link
+              to="/teacher/dashboard?tab=exam-results"
+              className="px-4 py-2.5 rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-black transition flex items-center gap-2 shadow-md shadow-cyan-600/20"
+            >
+              <Award size={15} />
+              <span>نتائج وكراسات الامتحانات</span>
+            </Link>
+            <Link
               to="/teacher/dashboard?tab=retake-requests"
               className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black transition flex items-center gap-2 shadow-md shadow-amber-500/20"
             >
@@ -1110,6 +1117,14 @@ export default function EditExamsPage() {
 
                       {/* Card Action Footer */}
                       <div className="p-4 bg-slate-50 dark:bg-slate-950/70 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                        <Link
+                          to={`/teacher/dashboard?tab=exam-results&examId=${exam.id}`}
+                          title="عرض نتائج ودرجات الطلاب وكراسات الإجابة"
+                          className="p-2 rounded-xl bg-cyan-50 dark:bg-cyan-950/70 border border-cyan-200 dark:border-cyan-800 text-[#0077B6] dark:text-[#00A8E8] hover:bg-cyan-100 transition"
+                        >
+                          <Award size={15} />
+                        </Link>
+
                         <button
                           type="button"
                           onClick={() => setEditingExamId(exam.id)}

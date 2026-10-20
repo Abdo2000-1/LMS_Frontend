@@ -958,3 +958,22 @@ export async function unlockStudentExam({ examId, studentPhoneOrId }) {
     throw new Error(extractErrorMessage(error));
   }
 }
+
+
+export async function getExamStudentsReport(examId) {
+  try {
+    const { data } = await apiClient.get(`/api/exams/${examId}/students-report`, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}
+
+export async function getStudentExamAttemptDetail(examId, attemptId) {
+  try {
+    const { data } = await apiClient.get(`/api/exams/${examId}/student-attempt/${attemptId}`, requestConfig);
+    return data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+}

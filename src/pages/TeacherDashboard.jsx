@@ -72,6 +72,7 @@ import TeacherEssayGrader from "../components/TeacherEssayGrader.jsx";
 import StandaloneLectureForm from "../components/StandaloneLectureForm.jsx";
 import EditExamsPage from "./EditExamsPage.jsx";
 import ExamRetakeManager from "../components/ExamRetakeManager.jsx";
+import TeacherExamResults from "../components/TeacherExamResults.jsx";
 import { getAllRetakeRequests } from "../services/courseService.js";
 import { KeyRound, FileEdit, Video, UserX, XCircle, RotateCcw } from "lucide-react";
 
@@ -81,6 +82,7 @@ const tabs = [
   { id: "access-codes", label: "أكواد التفعيل (12 رقم)", icon: KeyRound },
   { id: "essay-grading", label: "تصحيح الأسئلة المقالية", icon: FileEdit },
   { id: "retake-requests", label: "طلبات إعادة الامتحانات", icon: RotateCcw },
+  { id: "exam-results", label: "نتائج وكراسات الامتحانات", icon: Award },
   { id: "students", label: "بيانات الطلاب", icon: Users },
   { id: "student-details", label: "تتبع وتفاصيل الطلاب", icon: NotebookText },
   { id: "incoming-requests", label: "الطلبات الواردة", icon: Wallet },
@@ -1209,6 +1211,11 @@ export default function TeacherDashboard() {
         {/* --- TAB: EXAM RETAKE REQUESTS --- */}
         {activeTab === "retake-requests" && (
           <ExamRetakeManager />
+        )}
+
+        {/* --- TAB: EXAM RESULTS & SUBMISSIONS --- */}
+        {activeTab === "exam-results" && (
+          <TeacherExamResults initialExamId={searchParams.get("examId")} />
         )}
 
         {/* --- TAB 1: CURRENT COURSES LIST (GRID view) --- */}
