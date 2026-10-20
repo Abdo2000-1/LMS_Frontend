@@ -28,7 +28,9 @@ import {
   ZoomIn,
   Image as ImageIcon,
   Bot,
-  Loader2
+  Loader2,
+  WifiOff,
+  LogOut
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { getExamById, submitExamAttempt, uploadExamAnswerImage, gradeExamSingleEssay } from "../services/courseService.js";
@@ -59,9 +61,12 @@ export default function TakeExamPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
   const [exitWarningModalOpen, setExitWarningModalOpen] = useState(false);
-  const [tabWarningModalOpen, setTabWarningModalOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [reviewMode, setReviewMode] = useState(false);
+
+  // Network & persistence states
+  const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
+  const [restoredNotice, setRestoredNotice] = useState(false);
 
   // Essay image answer upload & preview states
   const [answerImages, setAnswerImages] = useState({}); // { [questionId]: imageUrl }
@@ -69,9 +74,28 @@ export default function TakeExamPage() {
   const [previewImageModal, setPreviewImageModal] = useState(null);
 
   const timerRef = useRef(null);
-  const leaveCountRef = useRef(0);
+  const expireAtRef = useRef(null);
   const answerImagesRef = useRef(answerImages);
   useEffect(() => { answerImagesRef.current = answerImages; }, [answerImages]);
+
+  // Online / Offline network listeners
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  // Auto-dismiss restore notice after 6 seconds
+  useEffect(() => {
+    if (!restoredNotice) return;
+    const t = setTimeout(() => setRestoredNotice(false), 6000);
+    return () => clearTimeout(t);
+  }, [restoredNotice]);
 
   // Load exam on mount or when examId changes
   useEffect(() => {
@@ -85,7 +109,8 @@ export default function TakeExamPage() {
     setFlagged(new Set());
     setCurrentIndex(0);
     setError("");
-    leaveCountRef.current = 0;
+    setRestoredNotice(false);
+    expireAtRef.current = null;
 
     getExamById(examId)
       .then((data) => {
@@ -193,6 +218,79 @@ export default function TakeExamPage() {
     }
   }, [exam?.id]);
 
+  // Resume in-progress exam if student was actively taking it and refreshed / reloaded / returned
+  useEffect(() => {
+    if (!exam?.id || examState !== "intro" || hasCompletedAttempt) return;
+
+    try {
+      const progressKey = `lms_exam_active_progress_${exam.id}`;
+      const savedStr = localStorage.getItem(progressKey);
+      if (!savedStr) return;
+
+      const saved = JSON.parse(savedStr);
+      if (!saved || !saved.expireAt) return;
+
+      // Verify that if a userId was attached to the draft, it matches current user
+      if (saved.userId && user?.id && saved.userId !== user.id) return;
+
+      const now = Date.now();
+      const remainingSeconds = Math.floor((saved.expireAt - now) / 1000);
+
+      if (remainingSeconds > 0) {
+        // Reconstruct questions order
+        if (Array.isArray(saved.questionIds) && saved.questionIds.length > 0 && baseQuestions.length > 0) {
+          const map = new Map(baseQuestions.map((q) => [q.questionId, q]));
+          const ordered = saved.questionIds.map((id) => map.get(id)).filter(Boolean);
+          if (ordered.length > 0) {
+            setShuffledList(ordered);
+          }
+        }
+
+        setAnswers(saved.answers || {});
+        setAnswerImages(saved.answerImages || {});
+        setFlagged(new Set(saved.flagged || []));
+        setCurrentIndex(saved.currentIndex || 0);
+        setTimeLeft(remainingSeconds);
+        expireAtRef.current = saved.expireAt;
+        setExamState("running");
+        setRestoredNotice(true);
+      } else {
+        // Expired while away
+        localStorage.removeItem(progressKey);
+      }
+    } catch (err) {
+      console.warn("Failed to resume exam from localStorage:", err);
+    }
+  }, [exam?.id, examState, hasCompletedAttempt, baseQuestions, user?.id]);
+
+  // Auto-persist active exam progress to localStorage
+  useEffect(() => {
+    if (examState !== "running" || !exam?.id) return;
+
+    try {
+      const progressKey = `lms_exam_active_progress_${exam.id}`;
+      const now = Date.now();
+      const existingStr = localStorage.getItem(progressKey);
+      const existing = existingStr ? JSON.parse(existingStr) : {};
+
+      const payload = {
+        examId: exam.id,
+        userId: user?.id,
+        startedAt: existing.startedAt || now,
+        expireAt: expireAtRef.current || existing.expireAt || (now + (exam.minutes || 30) * 60 * 1000),
+        questionIds: questions.map((q) => q.questionId),
+        answers,
+        answerImages,
+        flagged: Array.from(flagged),
+        currentIndex,
+      };
+
+      localStorage.setItem(progressKey, JSON.stringify(payload));
+    } catch (e) {
+      console.warn("Failed to auto-save exam progress:", e);
+    }
+  }, [answers, answerImages, flagged, currentIndex, examState, exam?.id, exam?.minutes, questions, user?.id]);
+
   // Refs for access inside native event handlers
   const answersRef = useRef(answers);
   useEffect(() => { answersRef.current = answers; }, [answers]);
@@ -221,7 +319,6 @@ export default function TakeExamPage() {
     setIsSubmitting(true);
     setSubmitModalOpen(false);
     setExitWarningModalOpen(false);
-    setTabWarningModalOpen(false);
 
     try {
       const rawAnswers = customAnswers || answersRef.current || answers;
@@ -257,6 +354,13 @@ export default function TakeExamPage() {
         timeSpentSeconds: spent,
       });
 
+      // Clear the active draft progress since the exam is now submitted
+      if (exam?.id) {
+        try {
+          localStorage.removeItem(`lms_exam_active_progress_${exam.id}`);
+        } catch {}
+      }
+
       if (user?.id && exam?.id) {
         try {
           localStorage.setItem(`lms_exam_attempted_${user.id}_${exam.id}`, JSON.stringify({
@@ -281,7 +385,7 @@ export default function TakeExamPage() {
       setExamState("result");
       await refreshProfile?.();
     } catch (err) {
-      alert(err.message || "حدث خطأ أثناء تسليم الامتحان.");
+      alert(err.message || "حدث خطأ أثناء تسليم الامتحان، إجاباتك محفوظة بالكامل ويمكنك إعادة المحاولة.");
     } finally {
       setIsSubmitting(false);
     }
@@ -367,7 +471,7 @@ export default function TakeExamPage() {
     });
   }, [examState, result?.id, questions, exam?.id, user?.id]);
 
-  // Anti-Cheat & Exit Guard during running exam
+  // Exit Guard during running exam
   useEffect(() => {
     if (examState !== "running") return;
 
@@ -376,7 +480,7 @@ export default function TakeExamPage() {
 
     const handleBeforeUnload = (e) => {
       e.preventDefault();
-      e.returnValue = "⚠️ الامتحان جارٍ الآن! مغادرة الصفحة ستؤدي إلى تسليم الامتحان بالدرجة الحالية فوراً.";
+      e.returnValue = "⚠️ الامتحان جارٍ الآن! هل أنت متأكد من مغادرة الصفحة؟";
       return e.returnValue;
     };
 
@@ -387,15 +491,14 @@ export default function TakeExamPage() {
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        leaveCountRef.current += 1;
-        if (leaveCountRef.current >= 2) {
-          // Auto submit immediately on repeated tab departure
-          performSubmission();
-        }
-      } else if (document.visibilityState === "visible") {
-        if (leaveCountRef.current === 1) {
-          setTabWarningModalOpen(true);
+      if (document.visibilityState === "visible") {
+        // Sync timer accurately when coming back from camera, gallery, or another tab
+        if (expireAtRef.current) {
+          const remaining = Math.max(0, Math.floor((expireAtRef.current - Date.now()) / 1000));
+          setTimeLeft(remaining);
+          if (remaining <= 0) {
+            handleFinalSubmit();
+          }
         }
       }
     };
@@ -411,23 +514,32 @@ export default function TakeExamPage() {
     };
   }, [examState]);
 
-  // Timer runner
+  // Timer runner with accurate target timestamp sync
   useEffect(() => {
     if (examState !== "running") {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
 
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current);
-          handleFinalSubmit();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const tick = () => {
+      const targetExpire = expireAtRef.current;
+      let remaining = 0;
+      if (targetExpire) {
+        remaining = Math.max(0, Math.floor((targetExpire - Date.now()) / 1000));
+      } else {
+        remaining = Math.max(0, timeLeftRef.current - 1);
+      }
+
+      setTimeLeft(remaining);
+
+      if (remaining <= 0) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        handleFinalSubmit();
+      }
+    };
+
+    tick();
+    timerRef.current = setInterval(tick, 1000);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -439,17 +551,40 @@ export default function TakeExamPage() {
       alert("هذا الامتحان غير مسموح بإعادته مرة أخرى بناءً على تعليمات المعلم.");
       return;
     }
-    leaveCountRef.current = 0;
     const listToShuffle = baseQuestions.length > 0 ? baseQuestions : questions;
     const shuffled = shuffleArray(listToShuffle);
+    const now = Date.now();
+    const durationSeconds = (exam?.minutes || 30) * 60;
+    const expireAt = now + durationSeconds * 1000;
+
+    expireAtRef.current = expireAt;
     setShuffledList(shuffled);
     setAnswers({});
     setAnswerImages({});
     setFlagged(new Set());
     setCurrentIndex(0);
-    setTimeLeft((exam?.minutes || 30) * 60);
+    setTimeLeft(durationSeconds);
     setExamState("running");
     setReviewMode(false);
+    setRestoredNotice(false);
+
+    try {
+      const progressKey = `lms_exam_active_progress_${exam.id}`;
+      localStorage.setItem(
+        progressKey,
+        JSON.stringify({
+          examId: exam.id,
+          userId: user?.id,
+          startedAt: now,
+          expireAt: expireAt,
+          questionIds: shuffled.map((q) => q.questionId),
+          answers: {},
+          answerImages: {},
+          flagged: [],
+          currentIndex: 0,
+        })
+      );
+    } catch {}
   }
 
   function handleSelectChoice(questionId, choiceIndex) {
@@ -468,6 +603,10 @@ export default function TakeExamPage() {
 
   async function handleImageUpload(questionId, file) {
     if (!file) return;
+    if (!navigator.onLine) {
+      alert("⚠️ لا يوجد اتصال بالإنترنت حالياً. إجاباتك النصية محفوظة بأمان، يرجى إعادة رفع الصورة فور عودة الاتصال.");
+      return;
+    }
     setUploadingImage(true);
     try {
       const compressed = await compressImageFile(file);
@@ -477,7 +616,7 @@ export default function TakeExamPage() {
         [questionId]: uploadedUrl,
       }));
     } catch (err) {
-      alert(err?.message || "تعذر رفع صورة الإجابة، يرجى المحاولة مرة أخرى.");
+      alert(err?.message || "تعذر رفع صورة الإجابة، يرجى التأكد من جودة الاتصال والمحاولة مرة أخرى.");
     } finally {
       setUploadingImage(false);
     }
@@ -556,11 +695,11 @@ export default function TakeExamPage() {
               <button
                 type="button"
                 onClick={() => setExitWarningModalOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:hover:bg-red-900/80 text-red-600 dark:text-red-400 text-xs font-black flex items-center gap-1.5 shrink-0 select-none border border-red-200 dark:border-red-900/50 transition cursor-pointer"
-                title="مغادرة وتسليم الامتحان"
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-red-50 dark:bg-slate-800 dark:hover:bg-red-950/40 text-slate-700 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-xs font-black flex items-center gap-1.5 shrink-0 select-none border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                title="تسليم ومغادرة الامتحان"
               >
-                <Lock size={14} />
-                <span className="hidden sm:inline">ممنوع الخروج (تسليم ومغادرة)</span>
+                <LogOut size={14} />
+                <span className="hidden sm:inline">تسليم ومغادرة</span>
                 <span className="sm:hidden">تسليم ومغادرة</span>
               </button>
             )}
@@ -612,6 +751,35 @@ export default function TakeExamPage() {
           </div>
         </div>
       </header>
+
+      {/* Offline Alert Banner */}
+      {isOffline && (
+        <div className="bg-amber-600 text-white px-4 py-2.5 text-xs font-black flex items-center justify-center gap-2 text-center shadow-md">
+          <WifiOff size={16} />
+          <span>تم فقد الاتصال بالإنترنت - لا تقلق! إجاباتك تُحفظ تلقائياً على جهازك دون فقدان أي بيانات، ويمكنك متابعة الحل وسيتم تسليم الامتحان فور عودة الاتصال.</span>
+        </div>
+      )}
+
+      {/* Restored Progress Notice Banner */}
+      {restoredNotice && examState === "running" && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-emerald-600 text-white px-4 py-2 text-xs font-black flex items-center justify-between shadow-sm"
+        >
+          <div className="flex items-center gap-2 mx-auto">
+            <CheckCircle2 size={16} />
+            <span>تم استعادة إجاباتك وتقدمك في الامتحان تلقائياً بنجاح، يمكنك متابعة الحل بأمان.</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRestoredNotice(false)}
+            className="p-1 hover:bg-white/20 rounded-lg transition"
+          >
+            <X size={14} />
+          </button>
+        </motion.div>
+      )}
 
       {/* ═══ 1. INTRO / START SCREEN ═════════════════════════════════════ */}
       {examState === "intro" && (
@@ -1649,7 +1817,7 @@ export default function TakeExamPage() {
         )}
       </AnimatePresence>
 
-      {/* ═══ EXIT WARNING MODAL (LEAVE / POPSTATE / HEADER CLICK) ══════════ */}
+      {/* ═══ EXIT CONFIRMATION MODAL (LEAVE / POPSTATE / HEADER CLICK) ══════════ */}
       <AnimatePresence>
         {exitWarningModalOpen && (
           <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
@@ -1657,24 +1825,24 @@ export default function TakeExamPage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border-2 border-red-500 dark:border-red-600 shadow-2xl space-y-5 text-right"
+              className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border-2 border-[#0077B6] dark:border-cyan-600 shadow-2xl space-y-5 text-right"
             >
-              <div className="w-14 h-14 rounded-2xl bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto border border-red-200 dark:border-red-900/50">
+              <div className="w-14 h-14 rounded-2xl bg-cyan-100 dark:bg-cyan-950 text-[#0077B6] dark:text-cyan-400 flex items-center justify-center mx-auto border border-cyan-200 dark:border-cyan-800">
                 <AlertCircle size={32} />
               </div>
 
               <div className="text-center space-y-2">
-                <h3 className="text-lg font-black text-red-600 dark:text-red-400">
-                  ⚠️ تنبيه حاسم: محاولة مغادرة الامتحان!
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  هل ترغب في مغادرة الامتحان وتسليمه الآن؟
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
-                  مغادرة صفحة الامتحان الآن ستؤدي إلى <strong>تسليم الامتحان فوراً</strong> واحتساب إجاباتك الحالية فقط! ولن تتمكن من العودة للامتحان أو تعديل أي إجابة.
+                  إجاباتك المسجلة محفوظة بالكامل في متصفحك. يمكنك المتابعة في أي وقت طالما أن وقت الامتحان لم ينتهِ، أو تأكيد تسليم الامتحان بالدرجة الحالية.
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/40 text-xs font-bold text-red-700 dark:text-red-300 space-y-1.5 text-center">
-                <p>عدد الأسئلة التي تم حلها: <span className="font-black">{answeredCount}</span> من أصل <span className="font-black">{questions.length}</span></p>
-                <p>الوقت المتبقي: <span className="font-mono font-black" dir="ltr">{formatTime(timeLeft)}</span></p>
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 space-y-1.5 text-center">
+                <p>عدد الأسئلة التي تم حلها: <span className="font-black text-[#0077B6] dark:text-cyan-400">{answeredCount}</span> من أصل <span className="font-black">{questions.length}</span></p>
+                <p>الوقت المتبقي: <span className="font-mono font-black text-emerald-600 dark:text-emerald-400" dir="ltr">{formatTime(timeLeft)}</span></p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
@@ -1696,51 +1864,9 @@ export default function TakeExamPage() {
                   className="py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-red-600/20"
                 >
                   <Lock size={15} />
-                  <span>تأكيد الخروج والتسليم</span>
+                  <span>تأكيد التسليم والمغادرة</span>
                 </button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ═══ TAB SWITCH / WINDOW BLUR WARNING MODAL ═══════════════════════ */}
-      <AnimatePresence>
-        {tabWarningModalOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border-2 border-amber-500 shadow-2xl space-y-5 text-right"
-            >
-              <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto border border-amber-300 dark:border-amber-800">
-                <AlertCircle size={32} />
-              </div>
-
-              <div className="text-center space-y-2">
-                <div className="inline-block px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-[11px] font-black">
-                  إنذار مغادرة الشاشة (1 من 2)
-                </div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                  ⚠️ تم رصد مغادرة نافذة الامتحان!
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
-                  مغادرة صفحة الامتحان أو التبديل بين النوافذ والتطبيقات يعتبر مخالفة لأنظمة الاختبارات.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs font-black text-amber-800 dark:text-amber-200 text-center leading-relaxed">
-                🚨 تحذير نهائي: في حال مغادرة نافذة الامتحان مرة أخرى، سيتم تسليم الامتحان تلقائياً وفوراً بالدرجة الحالية!
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setTabWarningModalOpen(false)}
-                className="w-full py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-lg shadow-amber-500/20 cursor-pointer"
-              >
-                فهمت، والعودة لمتابعة الامتحان الآن
-              </button>
             </motion.div>
           </div>
         )}
