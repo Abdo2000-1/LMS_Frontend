@@ -48,6 +48,31 @@ function formatSeconds(sec) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function getWhatsAppUrl(phone, studentName = "", isParent = false, examTitle = "", score = null) {
+  if (!phone || phone === "غير مسجل" || phone === "-") return null;
+  let clean = String(phone).replace(/\D/g, "");
+  if (!clean) return null;
+  if (clean.startsWith("0")) {
+    clean = "20" + clean.slice(1);
+  } else if (!clean.startsWith("20") && (clean.length === 10 || clean.length === 11)) {
+    clean = "20" + clean;
+  }
+
+  let message = "";
+  if (isParent) {
+    message = `مساء الخير يا فندم، معاك تيم دكتور مينا موريد بخصوص الطالب: ${studentName || ""}`;
+    if (examTitle) message += ` في امتحان: ${examTitle}`;
+    if (score !== null && score !== undefined) message += ` (الدرجة: ${score})`;
+    message += `. نسعد بالتواصل مع حضراتكم لأي استفسار.`;
+  } else {
+    message = `أهلاً بك يا ${studentName || "بطل"}، معاك تيم دكتور مينا موريد بخصوص امتحان: ${examTitle || ""}`;
+    if (score !== null && score !== undefined) message += ` (درجتك: ${score})`;
+    message += `. بالتوفيق دائماً!`;
+  }
+
+  return `https://wa.me/${clean}?text=${encodeURIComponent(message)}`;
+}
+
 export default function TeacherExamResults({ initialExamId = null }) {
   const [exams, setExams] = useState([]);
   const [selectedExamId, setSelectedExamId] = useState(initialExamId || "");
@@ -641,14 +666,14 @@ export default function TeacherExamResults({ initialExamId = null }) {
                         <div className="space-y-1">
                           {student.phone ? (
                             <a
-                              href={`https://wa.me/2${student.phone.replace(/^0+/, "")}`}
+                              href={getWhatsAppUrl(student.phone, student.fullName, false, reportData?.examTitle, isCompleted ? `${student.earnedPoints}/${student.totalPoints}` : null) || `tel:${student.phone}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:text-emerald-600 flex items-center gap-1"
-                              title="مراسلة واتساب الطالب"
+                              className="text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:text-emerald-600 flex items-center gap-1.5 transition-colors"
+                              title="مراسلة الطالب عبر واتساب"
                             >
-                              <Phone size={11} className="text-emerald-500" />
-                              <span>{student.phone}</span>
+                              <Phone size={11} className="text-emerald-500 shrink-0" />
+                              <span dir="ltr">{student.phone}</span>
                             </a>
                           ) : (
                             <span className="text-slate-400 text-[11px]">-</span>
@@ -656,14 +681,14 @@ export default function TeacherExamResults({ initialExamId = null }) {
 
                           {student.parentPhone && (
                             <a
-                              href={`https://wa.me/2${student.parentPhone.replace(/^0+/, "")}`}
+                              href={getWhatsAppUrl(student.parentPhone, student.fullName, true, reportData?.examTitle, isCompleted ? `${student.earnedPoints}/${student.totalPoints}` : null) || `tel:${student.parentPhone}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-[10px] text-slate-500 dark:text-slate-400 hover:text-emerald-600 flex items-center gap-1"
-                              title="مراسلة ولي الأمر"
+                              className="text-[10px] text-slate-500 dark:text-slate-400 hover:text-emerald-600 flex items-center gap-1.5 transition-colors"
+                              title="مراسلة ولي الأمر عبر واتساب"
                             >
-                              <span className="text-slate-400">ولي الأمر:</span>
-                              <span>{student.parentPhone}</span>
+                              <span className="text-slate-400 shrink-0">ولي الأمر:</span>
+                              <span dir="ltr">{student.parentPhone}</span>
                             </a>
                           )}
                         </div>
@@ -805,6 +830,36 @@ export default function TeacherExamResults({ initialExamId = null }) {
                         ? new Date(attemptDetail.submittedAt).toLocaleString("ar-EG", { hour12: true })
                         : "-"}
                     </p>
+                    {(attemptDetail?.studentPhone || attemptDetail?.studentParentPhone) && (
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        {attemptDetail?.studentPhone && (
+                          <a
+                            href={getWhatsAppUrl(attemptDetail.studentPhone, attemptDetail.studentName, false, attemptDetail.examTitle, `${attemptDetail.earnedPoints}/${attemptDetail.totalPoints}`) || `tel:${attemptDetail.studentPhone}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-bold hover:bg-emerald-100 transition shadow-sm"
+                            title="مراسلة الطالب عبر واتساب"
+                          >
+                            <Phone size={12} className="text-emerald-600 dark:text-emerald-400" />
+                            <span>واتساب الطالب:</span>
+                            <span dir="ltr" className="font-mono">{attemptDetail.studentPhone}</span>
+                          </a>
+                        )}
+                        {attemptDetail?.studentParentPhone && (
+                          <a
+                            href={getWhatsAppUrl(attemptDetail.studentParentPhone, attemptDetail.studentName, true, attemptDetail.examTitle, `${attemptDetail.earnedPoints}/${attemptDetail.totalPoints}`) || `tel:${attemptDetail.studentParentPhone}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-200 transition shadow-sm"
+                            title="مراسلة ولي الأمر عبر واتساب"
+                          >
+                            <Phone size={12} className="text-emerald-500" />
+                            <span>ولي الأمر:</span>
+                            <span dir="ltr" className="font-mono">{attemptDetail.studentParentPhone}</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
